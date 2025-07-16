@@ -221,6 +221,7 @@ def train_digital_human(video_file, name):
             "lang": "zh"
         }
         
+        print("train_digital_human")
         print(f"发送API请求: {api_data}")
         print(f"原音频路径: {audio_path}")
         
@@ -232,6 +233,7 @@ def train_digital_human(video_file, name):
         if response.status_code != 200:
             return None, t['api_response_error'].format(response.status_code, response.text)
         
+        print(f"API Response: {response.text}")
         print(f"API响应: {response.text}")
         
         result = response.json()
@@ -308,6 +310,7 @@ def synthesize_audio(model_name, text):
             "reference_text": reference_text
         }
         
+        print("synthesize_audio")
         print(f"语音合成API请求: {api_data}")
         
         response = requests.post(
@@ -392,6 +395,7 @@ def submit_synthesis_job(model_name, audio_file=None, text=None):
             "pn": 1
         }
         
+        print("submit_synthesis_job")
         print(f"合成任务API请求: {api_data}")
         print(f"音频路径: {audio_path}")
         print(f"视频路径: {model['video_path']}")
