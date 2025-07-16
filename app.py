@@ -144,8 +144,8 @@ lang = args.lang
 t = translations[lang]
 
 # 配置
-VOICE_DATA_PATH = r"~/heygem_data/voice/data"
-FACE2FACE_TEMP_PATH = r"~/heygem_data/face2face/temp"
+VOICE_DATA_PATH = os.path.expanduser(r"~/heygem_data/voice/data")
+FACE2FACE_TEMP_PATH = os.path.expanduser(r"~/heygem_data/face2face/temp")
 MODEL_INFO_FILE = "digital_human_models.json"
 API_BASE_URL = "http://localhost:18180"  # 请根据实际API地址调整
 API_BASE_URL2 = "http://localhost:8383"
