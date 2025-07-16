@@ -218,6 +218,56 @@ docker-compose -f docker-compose-linux.yml up -d
 
 Reminder: In the Ubuntu system, if you enter the desktop as the `root` user, directly double - clicking `HeyGem - x.x.x.AppImage` may not work. You need to execute `./HeyGem - x.x.x.AppImage --no - sandbox` in the command - line terminal. Adding the `--no - sandbox` parameter will do the trick.
 
+### WebUI Usage Guide
+
+HeyGem provides a simple and intuitive interface to help you train and use digital human models (Please make sure you have completed the server-side deployment on Windows):
+
+#### Environment Requirements
+
+- Python dependencies: Ensure you have installed the necessary Python libraries
+  ```
+  gradio==4.44.1
+  requests~=2.32.3
+  pydub==0.25.1
+  uuid==1.30
+  python-json-logger==3.3.0
+  ```
+
+#### Language Switching Feature
+
+HeyGem supports Chinese and English interface switching:
+- Default launch with Chinese interface: `python app.py`
+- Launch with English interface: `python app.py --lang en`
+- Launch with Chinese interface: `python app.py --lang zh`
+
+#### Data Storage Paths
+
+- Audio files storage path: `D:\heygem_data\voice\data`
+- Video files storage path: `D:\heygem_data\face2face\temp`
+
+#### Training Digital Humans
+
+1. After opening the software, switch to the "Digital Human Training" tab
+2. Upload a reference video: Click on the "Upload Reference Video" area to select a video file with a person speaking
+3. Enter a name for the digital human: Name your digital human model
+4. Click the "Start Training" button
+5. Wait for the training to complete; upon success, the message "Training Successful!" will be displayed
+
+#### Digital Human Synthesis
+
+1. Switch to the "Digital Human Synthesis" tab
+2. Select a trained digital human model from the dropdown menu
+3. Choose a synthesis method:
+   - **Text Input**: Enter text content and click the "Synthesize" button
+   - **Audio Upload**: Upload an audio file and click the "Synthesize" button
+4. The system will assign a task ID and begin processing
+5. Click the "Query Synthesis Status" button to check the progress
+6. Once synthesis is complete, the video result will be displayed in the interface
+
+#### Other Features
+
+- **Refresh Digital Human Model List**: Click this button to update the dropdown menu of trained models
+- To view storage paths and other detailed information, expand the "Storage Path Information" area at the top of the interface
 
 
 ## 4. Open APIs
