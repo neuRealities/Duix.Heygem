@@ -1,0 +1,27 @@
+<html>
+  <head>
+    <title>Video Streaming Demonstration</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+  </head>
+  <body>
+    <h1>Video Streaming Demonstration</h1>
+    <img id="bg" src="{{ url_for('video_feed') }}">
+    <h1>Play Audio File</h1>
+    <audio controls {{ audioAutoPlay }} onplay="playpause()" onpause="playpause()">
+        <source src="{{ url_for('wav') }}" type="audio/wav">
+        Your browser does not support the audio element.
+    </audio>
+
+    <p id="demo"></p>
+
+    <script>
+    function playpause() {
+      $.post("/pause",
+      {
+        action: "pause / play"
+      });
+      document.getElementById("demo").innerHTML = "The video has started to play";
+    }
+    </script>
+  </body>
+</html>

@@ -3,5 +3,10 @@ requests~=2.32.3
 pydub==0.25.1
 uuid==1.30
 python-json-logger==3.3.0
+# Missing
 audioop-lts==0.2.1
 pydantic==2.10.6
+# Display
+watchdog
+opencv-python
+flask
