@@ -7,7 +7,7 @@
     <h1>Video Streaming Demonstration</h1>
     <img id="bg" src="{{ url_for('video_feed') }}">
     <h1>Play Audio File</h1>
-    <audio controls {{ audioAutoPlay }} onplay="playpause()" onpause="playpause()">
+    <audio controls {{ audioAutoPlay }} onplay="playpause()">
         <source src="{{ url_for('wav') }}" type="audio/wav">
         Your browser does not support the audio element.
     </audio>

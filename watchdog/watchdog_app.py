@@ -13,14 +13,15 @@ from camera import VideoCamera
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-VOICE_DATA_PATH = os.path.expanduser(r"~/heygem_data/voice/data")
-VIDEO_TEMP_PATH = os.path.expanduser(r"~/heygem_data/face2face/temp")
+VOICE_DATA_PATH   = Path(os.path.expanduser(r"~/heygem_data/voice/data"))
+VIDEO_TEMP_PATH   = Path(os.path.expanduser(r"~/heygem_data/face2face/temp"))
+COPIED_VIDEO_PATH = Path(os.path.expanduser(r"~/heygem_data/face2face/copy"))
 
 AUTOPLAY   = False
 IS_PLAYING = True
-CAMERA     = None
+CAMERA     = VideoCamera()
 
-def rel_path(abs_path:str):
+def rel_vidpath(abs_path:str):
     """Returns relative path from watched directory, for easier display"""
     return os.path.relpath(abs_path, start=VIDEO_TEMP_PATH)
 
@@ -28,10 +29,9 @@ def rel_path(abs_path:str):
 class TempFileHandler(FileSystemEventHandler):
     """Watchdog class to handle file system events"""
     def on_created(self, event):
-        rpath = rel_path(event.src_path)
+        rpath = rel_vidpath(event.src_path)
         if event.is_directory:
             print("Created: Directory:", rpath)
-            pass
         else:
             #print("Created: File:", rpath)
             pass
@@ -40,12 +40,12 @@ class TempFileHandler(FileSystemEventHandler):
     def on_modified(self, event):
         if event.is_directory:  # Ignore directory modifications if only files are desired
             return
-        rpath = rel_path(event.src_path)
+        rpath = rel_vidpath(event.src_path)
         #print("Modified: File:", rpath)
         return super().on_modified(event)
 
     def on_deleted(self, event):
-        rpath = rel_path(event.src_path)
+        rpath = rel_vidpath(event.src_path)
         if event.is_directory:
             print("Deleted: Directory:", rpath)
         else:
@@ -53,18 +53,33 @@ class TempFileHandler(FileSystemEventHandler):
         return super().on_deleted(event)
 
     def on_closed(self, event):
-        rpath = rel_path(event.src_path)
-        handle_closed_files(rpath)
+        rpath = rel_vidpath(event.src_path)
+        handle_closed_files(event.src_path, rpath)
         return super().on_closed(event)
 
-def handle_closed_files(rpath: str):
+def handle_closed_files(fpath: os.PathLike, rpath: os.PathLike):
     """Handler when created or modified files have been closed"""
     global CAMERA
-    print("Closed: File:", rpath)
     if rpath == "output/audio_data.npy":
+        # The audio file has been writen, and processed into numpy
         # We are ready to start receiving video files
         print(f"audio_data.npy", CAMERA)
+        # Clear previous run
+        CAMERA.clear_videos()
+        if os.path.exists(COPIED_VIDEO_PATH):
+            shutil.rmtree(COPIED_VIDEO_PATH)
+        os.makedirs(COPIED_VIDEO_PATH, exist_ok=True)
         return
+    
+    synthesis_vid_dir = "output/avi/"
+    if rpath.startswith(synthesis_vid_dir):
+        # Copy the intermediate file before it's too late
+        os.makedirs(COPIED_VIDEO_PATH / synthesis_vid_dir, exist_ok=True)
+        shutil.copy(fpath, COPIED_VIDEO_PATH / rpath)
+        CAMERA.add_video(COPIED_VIDEO_PATH / rpath)
+        return
+    
+    print("Closed: File:", rpath)
 
 app = Flask(__name__)
 
@@ -88,7 +103,6 @@ def gen(camera):
 def video_feed():
     """Get camera object from cv2.VideoCapture"""
     global CAMERA
-    CAMERA = VideoCamera()
     print(CAMERA)
     return Response(gen(CAMERA),
         mimetype='multipart/x-mixed-replace; boundary=frame')
@@ -120,10 +134,9 @@ def main():
     AUTOPLAY  = False
     IS_PLAYING = True
     # Watchdog subscribe
-    path  = VIDEO_TEMP_PATH
     observer = Observer()
     handler = TempFileHandler()
-    observer.schedule(handler, path, recursive=True)
+    observer.schedule(handler, VIDEO_TEMP_PATH, recursive=True)
     observer.start()
     print("Watchdog: Observing files...")
     print("Use Ctrl+C for KeyboardInterrupt.")
