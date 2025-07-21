@@ -1,3 +1,4 @@
+"""Module to handle file watchdog functions and stream to web"""
 import os
 import time
 
@@ -70,7 +71,7 @@ def handle_closed_files(fpath: os.PathLike, rpath: os.PathLike):
             shutil.rmtree(COPIED_VIDEO_PATH)
         os.makedirs(COPIED_VIDEO_PATH, exist_ok=True)
         return
-    
+
     synthesis_vid_dir = "output/avi/"
     if rpath.startswith(synthesis_vid_dir):
         # Copy the intermediate file before it's too late
@@ -78,7 +79,7 @@ def handle_closed_files(fpath: os.PathLike, rpath: os.PathLike):
         shutil.copy(fpath, COPIED_VIDEO_PATH / rpath)
         CAMERA.add_video(COPIED_VIDEO_PATH / rpath)
         return
-    
+
     print("Closed: File:", rpath)
 
 app = Flask(__name__)
@@ -91,7 +92,10 @@ def index():
 def gen(camera):
     """Get frames from camera class"""
     global AUTOPLAY, IS_PLAYING
-    IS_PLAYING = AUTOPLAY # Initial state. Notice that AUTOPLAY=True might not work due to browser restriction on unwanted audio play without user intervention
+    # Set Initial state.
+    # Notice that AUTOPLAY=True might not work due to browser
+    # restrictions on unwanted audio play without user intervention
+    IS_PLAYING = AUTOPLAY
     while True:
         if IS_PLAYING:
             frame = camera.get_frame()
@@ -142,7 +146,8 @@ def main():
     print("Use Ctrl+C for KeyboardInterrupt.")
 
     # Run server
-    app.run(host='0.0.0.0', debug=False) # False because otherwise server creates another interfering watchdog instance
+    # debug ids False because otherwise server creates another interfering watchdog instance
+    app.run(host='0.0.0.0', debug=False)
 
     # End when server ends
     print("Watchdog: Finished.")

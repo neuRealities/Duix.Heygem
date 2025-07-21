@@ -1,9 +1,10 @@
+"""Module to get camera feed from video file queue"""
 import os
 import cv2
 import numpy as np
 
 class VideoCamera(object):
-
+    """Use opencv to read from video files and create stream"""
     def __init__(self):
         # Using OpenCV to capture from device 0. If you have trouble capturing
         # from a webcam, comment the line below out and use a video file
@@ -18,16 +19,16 @@ class VideoCamera(object):
         _, self.latest_frame_jpeg = cv2.imencode('.jpg', placeholder_image)
         self.video = None
         self.donePlaying = False
-    
+
     def __del__(self):
         self.video.release()
-    
+
     def get_frame(self):
+        """Use opencv get get frame image from a loaded video, otherwise load video in queue"""
         if not self.video:
             self.load_video()
             return self.latest_frame_jpeg.tobytes()
 
-        """Use opencv get get frame image"""
         success, image = self.video.read()
         # We are using Motion JPEG, but OpenCV defaults to capture raw images,
         # so we must encode it into JPEG in order to correctly display the
@@ -38,7 +39,7 @@ class VideoCamera(object):
         else:
             self.video = None
         return self.latest_frame_jpeg.tobytes()
-    
+
     def add_video(self, path: os.PathLike):
         """Add videos from watchdog"""
         self.videos.append(path)
@@ -48,7 +49,7 @@ class VideoCamera(object):
         """Clear video render queue"""
         print("Cleared videos")
         self.videos = []
-    
+
     def load_video(self):
         """Load new videos from top of queue if available"""
         if len(self.videos) > 0:
