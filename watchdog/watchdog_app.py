@@ -89,26 +89,59 @@ def index():
     """Render main flask page"""
     return render_template('index.html', audioAutoPlay = 'autoplay' if AUTOPLAY else '')
 
-def gen(camera):
+@app.route('/test')
+def test():
+    """Render test flask page"""
+    return render_template('test.html', audioAutoPlay = 'autoplay' if AUTOPLAY else '')
+
+def gen(camera, frame_rate = 28.18):
     """Get frames from camera class"""
     global AUTOPLAY, IS_PLAYING
     # Set Initial state.
     # Notice that AUTOPLAY=True might not work due to browser
     # restrictions on unwanted audio play without user intervention
     IS_PLAYING = AUTOPLAY
+    print(f"frame_rate = {frame_rate}")
+    current_time = time.time()
+    avg_frame_time = 0
     while True:
         if IS_PLAYING:
-            frame = camera.get_frame()
-            time.sleep(1.0 / 25.0)
+            success, fnum, vidfnum, frame = camera.get_frame()
+            if success:
+                sleep_time = 1.0 / frame_rate
+                time_diff = time.time() - current_time
+                current_time = time.time()
+                avg_frame_time = ((avg_frame_time * fnum - 1) + sleep_time) / fnum
+                print(f"time_diff [{fnum} {vidfnum}]: {time_diff:.8f} avg_frame_time: {avg_frame_time:.8f}")
+                time.sleep(sleep_time)
             yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
+@app.route('/video_load')
+def video_load():
+    """Get camera and load existiing videos"""
+    onlyfiles = [
+        os.path.join(dirpath,f)
+            for (dirpath, dirnames, filenames) in os.walk(COPIED_VIDEO_PATH)
+        for f in filenames]
+    onlyfiles.sort()
+    audio_length = 21.0
+    framerate = len(onlyfiles) * 3 / audio_length
+    return load_camera(onlyfiles, framerate)
+
 @app.route('/video_feed')
 def video_feed():
-    """Get camera object from cv2.VideoCapture"""
+    """Get camera with empty video queue"""
+    return load_camera([])
+
+def load_camera(video_list:list, frame_rate=28.18):
+    """Initialize camera object from cv2.VideoCapture with video queue"""
     global CAMERA
+    CAMERA.clear_videos()
+    CAMERA.set_frame_output_dir("framedir")
+    CAMERA.load_videos(video_list)
     print(CAMERA)
-    return Response(gen(CAMERA),
+    return Response(gen(CAMERA, frame_rate),
         mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route("/pause", methods=['POST'])
@@ -122,13 +155,20 @@ def pause():
 @app.route("/wav")
 def wav():
     """Get audio file and synchronize it to the images being displayed"""
-    def generate():
-        with open("samples/sample.wav", "rb") as fwav:
+    return Response(generate_wav("samples/sample.wav"), mimetype="audio/x-wav")
+
+@app.route("/wav_load")
+def wav_load():
+    """Get audio file and synchronize it to the images being displayed"""
+    return Response(generate_wav(VIDEO_TEMP_PATH / "source_audio_wav.wav"), mimetype="audio/x-wav")
+
+def generate_wav(filepath: os.PathLike):
+    """Generate audio stream from .wav"""
+    with open(filepath, "rb") as fwav:
+        data = fwav.read(1024)
+        while data:
+            yield data
             data = fwav.read(1024)
-            while data:
-                yield data
-                data = fwav.read(1024)
-    return Response(generate(), mimetype="audio/x-wav")
 
 
 def main():
