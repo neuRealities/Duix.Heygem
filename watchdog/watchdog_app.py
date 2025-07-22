@@ -19,10 +19,13 @@ from watchdog.events import FileSystemEventHandler
 VOICE_DATA_PATH   = Path(os.path.expanduser(r"~/heygem_data/voice/data"))
 VIDEO_TEMP_PATH   = Path(os.path.expanduser(r"~/heygem_data/face2face/temp"))
 COPIED_VIDEO_PATH = Path(os.path.expanduser(r"~/heygem_data/face2face/copy"))
+FRAMEIMAGE_PATH   = Path(os.path.expanduser(r"~/heygem_data/face2face/frameimages"))
 
 AUTOPLAY   = False
 IS_PLAYING = True
 CAMERA     = VideoCamera()
+DEBUG_FILE_EVENTS = False
+DEBUG_TIMING      = False
 
 def rel_vidpath(abs_path:str):
     """Returns relative path from watched directory, for easier display"""
@@ -32,35 +35,32 @@ def rel_vidpath(abs_path:str):
 class TempFileHandler(FileSystemEventHandler):
     """Watchdog class to handle file system events"""
     def on_created(self, event):
-        rpath = rel_vidpath(event.src_path)
-        if event.is_directory:
-            print("Created: Directory:", rpath)
-        else:
-            #print("Created: File:", rpath)
-            pass
+        print_file_event("Created", rel_vidpath(event.src_path), event.is_directory)
         return super().on_created(event)
 
     def on_modified(self, event):
-        if event.is_directory:  # Ignore directory modifications if only files are desired
-            return
-        #print("Modified: File:", rel_vidpath(event.src_path))
+        # print_file_event("Modified", rel_vidpath(event.src_path), event.is_directory)
         return super().on_modified(event)
 
     def on_deleted(self, event):
-        rpath = rel_vidpath(event.src_path)
-        if event.is_directory:
-            print("Deleted: Directory:", rpath)
-        else:
-            print("Deleted: File:", rpath)
+        print_file_event("Deleted", rel_vidpath(event.src_path), event.is_directory)
         return super().on_deleted(event)
 
     def on_closed(self, event):
-        rpath = rel_vidpath(event.src_path)
-        handle_closed_files(event.src_path, rpath)
+        handle_closed_files(
+            "Closed", rel_vidpath(event.src_path), event.is_directory,
+            event.src_path)
         return super().on_closed(event)
 
-def handle_closed_files(fpath: os.PathLike, rpath: os.PathLike):
+def print_file_event(action:str, rpath:str, is_directory:bool):
+    """Print what filesystem event happened"""
+    if DEBUG_FILE_EVENTS:
+        print(f"{action} {"Directory" if is_directory else "File" } : {rpath}")
+
+
+def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath: os.PathLike):
     """Handler when created or modified files have been closed"""
+    print_file_event(action, rpath, is_directory)
     global CAMERA
     if rpath == "output/audio_data.npy":
         # The audio file has been writen, and processed into numpy
@@ -80,20 +80,6 @@ def handle_closed_files(fpath: os.PathLike, rpath: os.PathLike):
         shutil.copy(fpath, COPIED_VIDEO_PATH / rpath)
         CAMERA.add_video(COPIED_VIDEO_PATH / rpath)
         return
-
-    print("Closed: File:", rpath)
-
-app = Flask(__name__)
-
-@app.route('/')
-def index():
-    """Render main flask page"""
-    return render_template('index.html', audioAutoPlay = 'autoplay' if AUTOPLAY else '')
-
-@app.route('/test')
-def test():
-    """Render test flask page"""
-    return render_template('test.html', audioAutoPlay = 'autoplay' if AUTOPLAY else '')
 
 def gen(camera, frame_rate = 28.18):
     """Get frames from camera class"""
@@ -119,7 +105,8 @@ def gen(camera, frame_rate = 28.18):
                 avg_frame_time = ((avg_frame_time * (framenum)) + sleep_time) / (framenum + 1)
                 # Time print
                 start_print_time = time.time()
-                print(f"Frame: {framenum:03d}. Video: {video['index']:03d}, Vid.Frame: {video['current_frame']} Diff: {time_diff:.8f} Avg: {avg_frame_time:.8f}")
+                if DEBUG_TIMING:
+                    print(f"Frame: {framenum:03d}. Video: {video['index']:03d}, Vid.Frame: {video['current_frame']} Diff: {time_diff:.8f} Avg: {avg_frame_time:.8f}")
                 print_time = time.time() - start_print_time
                 # Time actual sleep
                 requested_sleep = sleep_time - (retrieval_time + print_time + delta_sleep)
@@ -127,16 +114,17 @@ def gen(camera, frame_rate = 28.18):
                 time.sleep(requested_sleep)
                 total_sleep_time =time.time() - start_sleep
                 delta_sleep = total_sleep_time - requested_sleep
-                print(f"Times: current_time: {current_time}, retrieval_time: {retrieval_time}, print_time: {print_time}, total_sleep_time: {total_sleep_time} delta_sleep: {delta_sleep}")
+                if DEBUG_TIMING:
+                    print(f"Times: current_time: {current_time:.8f}, retrieval_time: {retrieval_time:.8f}, print_time: {print_time:.8f}, total_sleep_time: {total_sleep_time:.8f} delta_sleep: {delta_sleep:.8f}")
 
             yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
 def load_camera(video_list:list, frame_rate=28.18):
     """Initialize camera object from cv2.VideoCapture with video queue"""
-    global CAMERA
+    global CAMERA, FRAMEIMAGE_PATH
     CAMERA.clear_videos()
-    CAMERA.set_frame_output_dir("framedir")
+    CAMERA.set_frame_output_dir(FRAMEIMAGE_PATH.as_posix())
     CAMERA.load_videos(video_list)
     print(CAMERA)
     return Response(gen(CAMERA, frame_rate),
@@ -159,6 +147,18 @@ def get_audio_length(filepath: os.PathLike):
     return duration
 
 # Flask functions
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    """Render main flask page"""
+    return render_template('index.html', audioAutoPlay = 'autoplay' if AUTOPLAY else '')
+
+@app.route('/test')
+def test():
+    """Render test flask page"""
+    return render_template('test.html', audioAutoPlay = 'autoplay' if AUTOPLAY else '')
+
 
 @app.route('/video_load')
 def video_load():
