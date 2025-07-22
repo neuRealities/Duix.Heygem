@@ -1,6 +1,8 @@
 """Module to handle file watchdog functions and stream to web"""
 import os
 import time
+import wave
+import contextlib
 
 # File utilities
 import shutil
@@ -41,8 +43,7 @@ class TempFileHandler(FileSystemEventHandler):
     def on_modified(self, event):
         if event.is_directory:  # Ignore directory modifications if only files are desired
             return
-        rpath = rel_vidpath(event.src_path)
-        #print("Modified: File:", rpath)
+        #print("Modified: File:", rel_vidpath(event.src_path))
         return super().on_modified(event)
 
     def on_deleted(self, event):
@@ -64,7 +65,7 @@ def handle_closed_files(fpath: os.PathLike, rpath: os.PathLike):
     if rpath == "output/audio_data.npy":
         # The audio file has been writen, and processed into numpy
         # We are ready to start receiving video files
-        print(f"audio_data.npy", CAMERA)
+        print(f"audio_data.npy: {CAMERA}")
         # Clear previous run
         CAMERA.clear_videos()
         if os.path.exists(COPIED_VIDEO_PATH):
@@ -104,35 +105,32 @@ def gen(camera, frame_rate = 28.18):
     print(f"frame_rate = {frame_rate}")
     current_time = time.time()
     avg_frame_time = 0
+    delta_sleep = 0
     while True:
         if IS_PLAYING:
-            success, fnum, vidfnum, frame = camera.get_frame()
+            # Time retrieval time
+            retrieval_time_start = time.time()
+            success, frame, framenum, video,  = camera.get_frame()
+            retrieval_time = time.time() - retrieval_time_start
             if success:
                 sleep_time = 1.0 / frame_rate
                 time_diff = time.time() - current_time
                 current_time = time.time()
-                avg_frame_time = ((avg_frame_time * fnum - 1) + sleep_time) / fnum
-                print(f"time_diff [{fnum} {vidfnum}]: {time_diff:.8f} avg_frame_time: {avg_frame_time:.8f}")
-                time.sleep(sleep_time)
+                avg_frame_time = ((avg_frame_time * (framenum)) + sleep_time) / (framenum + 1)
+                # Time print
+                start_print_time = time.time()
+                print(f"Frame: {framenum:03d}. Video: {video['index']:03d}, Vid.Frame: {video['current_frame']} Diff: {time_diff:.8f} Avg: {avg_frame_time:.8f}")
+                print_time = time.time() - start_print_time
+                # Time actual sleep
+                requested_sleep = sleep_time - (retrieval_time + print_time + delta_sleep)
+                start_sleep = time.time()
+                time.sleep(requested_sleep)
+                total_sleep_time =time.time() - start_sleep
+                delta_sleep = total_sleep_time - requested_sleep
+                print(f"Times: current_time: {current_time}, retrieval_time: {retrieval_time}, print_time: {print_time}, total_sleep_time: {total_sleep_time} delta_sleep: {delta_sleep}")
+
             yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
-
-@app.route('/video_load')
-def video_load():
-    """Get camera and load existiing videos"""
-    onlyfiles = [
-        os.path.join(dirpath,f)
-            for (dirpath, dirnames, filenames) in os.walk(COPIED_VIDEO_PATH)
-        for f in filenames]
-    onlyfiles.sort()
-    audio_length = 21.0
-    framerate = len(onlyfiles) * 3 / audio_length
-    return load_camera(onlyfiles, framerate)
-
-@app.route('/video_feed')
-def video_feed():
-    """Get camera with empty video queue"""
-    return load_camera([])
 
 def load_camera(video_list:list, frame_rate=28.18):
     """Initialize camera object from cv2.VideoCapture with video queue"""
@@ -143,6 +141,44 @@ def load_camera(video_list:list, frame_rate=28.18):
     print(CAMERA)
     return Response(gen(CAMERA, frame_rate),
         mimetype='multipart/x-mixed-replace; boundary=frame')
+
+def generate_wav(filepath: os.PathLike):
+    """Generate audio stream from .wav"""
+    with open(filepath, "rb") as fwav:
+        data = fwav.read(1024)
+        while data:
+            yield data
+            data = fwav.read(1024)
+
+def get_audio_length(filepath: os.PathLike):
+    """Get length of audio file"""
+    with contextlib.closing(wave.open(filepath,'r')) as f:
+        frames = f.getnframes()
+        rate = f.getframerate()
+        duration = frames / float(rate)
+    return duration
+
+# Flask functions
+
+@app.route('/video_load')
+def video_load():
+    """Get camera and load existiing videos"""
+    onlyfiles = [
+        os.path.join(dirpath,f)
+            for (dirpath, dirnames, filenames) in os.walk(COPIED_VIDEO_PATH)
+        for f in filenames]
+    onlyfiles.sort()
+    # Get existing audio file
+    audio_duration = get_audio_length((VIDEO_TEMP_PATH / "source_audio_wav.wav").as_posix())
+    print (f"audio_duration: {audio_duration}")
+    framerate = len(onlyfiles) * 2 / audio_duration
+    return load_camera(onlyfiles, framerate)
+
+@app.route('/video_feed')
+def video_feed():
+    """Get camera with empty video queue"""
+    return load_camera([])
+
 
 @app.route("/pause", methods=['POST'])
 def pause():
@@ -162,15 +198,7 @@ def wav_load():
     """Get audio file and synchronize it to the images being displayed"""
     return Response(generate_wav(VIDEO_TEMP_PATH / "source_audio_wav.wav"), mimetype="audio/x-wav")
 
-def generate_wav(filepath: os.PathLike):
-    """Generate audio stream from .wav"""
-    with open(filepath, "rb") as fwav:
-        data = fwav.read(1024)
-        while data:
-            yield data
-            data = fwav.read(1024)
-
-
+# Main function
 def main():
     """Main watchdog function to observe files created by heygem-gen-video docker service"""
     # Initialize
