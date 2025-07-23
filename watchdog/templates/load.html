@@ -5,20 +5,19 @@
   </head>
   <body>
     <h1>Video Loading Demonstration</h1>
-    <img id="bg" src="{{ url_for('video_load') }}">
-    <h1>Play Audio File</h1>
-    <audio controls {{ audioAutoPlay }} onplay="playpause()">
+    <audio id="audioControls" controls autoplay onplay="playpause()">
         <source src="{{ url_for('wav_load') }}" type="audio/wav">
         Your browser does not support the audio element.
     </audio>
-
     <p id="demo"></p>
+    <img id="bg" src="{{ url_for('video_load') }}">
 
     <script>
     function playpause() {
-      $.post("/pause",
+      document.getElementById('audioControls').controls = false;
+      $.post("/start_loaded_videos",
       {
-        action: "pause / play"
+        action: "play"
       });
       document.getElementById("demo").innerHTML = "The video has started to play";
     }

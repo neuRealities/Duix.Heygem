@@ -11,7 +11,7 @@ from pathlib import Path
 
 # Flask display
 from flask import Flask, render_template, Response, jsonify
-from camera import VideoCamera
+from camera import VideoCamera, CameraStatus
 
 # Watchdog
 from watchdog.observers import Observer
@@ -22,11 +22,9 @@ VIDEO_TEMP_PATH   = Path(os.path.expanduser(r"~/heygem_data/face2face/temp"))
 COPIED_VIDEO_PATH = Path(os.path.expanduser(r"~/heygem_data/face2face/copy"))
 FRAMEIMAGE_PATH   = Path(os.path.expanduser(r"~/heygem_data/face2face/frameimages"))
 
-AUTOPLAY   = False
-IS_PLAYING = True
 CAMERA     = VideoCamera()
 DEBUG_FILE_EVENTS = False
-DEBUG_TIMING      = True
+DEBUG_TIMING      = False
 DEFAULT_FPS       = 28.18
 
 def rel_vidpath(abs_path:str):
@@ -100,6 +98,7 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
         print(f"Audio: {audio_length}s, Expected: Frames: {expected_frames}, Videos: {expected_videos}")
         # Clear previous run
         CAMERA.clear_videos()
+        CAMERA.set_status(CameraStatus.OFF)
         CAMERA.audio_start = time.time()
         CAMERA.video_start = -1
         return
@@ -108,20 +107,18 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
     synthesis_vid_dir = "output/avi/"
     if rpath.startswith(synthesis_vid_dir):
         # Add to camera video queue
-        CAMERA.add_video(COPIED_VIDEO_PATH / rpath, time.time())
         if CAMERA.video_start <= 0:
+            CAMERA.set_status(CameraStatus.IDLE)
             CAMERA.video_start = time.time()
-            if DEBUG_TIMING:
-                print(f"Audio to Video latency: {CAMERA.video_start - CAMERA.audio_start}s")
+            print(f"Audio to Video latency: {CAMERA.video_start - CAMERA.audio_start}s")
+        CAMERA.add_video(COPIED_VIDEO_PATH / rpath, time.time())
         return
 
-def gen(camera, frame_rate = DEFAULT_FPS):
+def gen(camera:VideoCamera, frame_rate = DEFAULT_FPS):
     """Get frames from camera class"""
-    global AUTOPLAY, IS_PLAYING
     # Set Initial state.
-    # Notice that AUTOPLAY=True might not work due to browser
+    # Notice that IS_PLAYING=True might not work due to browser
     # restrictions on unwanted audio play without user intervention
-    IS_PLAYING = AUTOPLAY
     print(f"frame_rate = {frame_rate}")
     avg_frame_duration = 0
     sleep_time = 1.0 / frame_rate
@@ -129,7 +126,7 @@ def gen(camera, frame_rate = DEFAULT_FPS):
     play_time = 0
 
     while True:
-        if IS_PLAYING:
+        if camera.status == CameraStatus.PLAYING:
             # Time retrieval time
             frame_start = time.time()
             success, frame, framenum, video,  = camera.get_frame()
@@ -171,11 +168,13 @@ def load_camera(video_list:list, frame_rate=DEFAULT_FPS):
     """Initialize camera object from cv2.VideoCapture with video queue"""
     global CAMERA, FRAMEIMAGE_PATH
     CAMERA.clear_videos()
+    CAMERA.set_status(CameraStatus.IDLE)
     if os.path.exists(FRAMEIMAGE_PATH):
         shutil.rmtree(FRAMEIMAGE_PATH)
     CAMERA.set_frame_output_dir(FRAMEIMAGE_PATH.as_posix())
     CAMERA.load_videos(video_list, time.time())
     print("load_camera:", CAMERA)
+    CAMERA.set_status(CameraStatus.WAITING)
     return Response(gen(CAMERA, frame_rate),
         mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -208,12 +207,12 @@ app = Flask(__name__)
 @app.route('/')
 def index():
     """Render main flask page"""
-    return render_template('index.html', audioAutoPlay = 'autoplay' if AUTOPLAY else '')
+    return render_template('index.html', audioAutoPlay = '')
 
 @app.route('/load')
 def load():
     """Render video load flask page"""
-    return render_template('load.html', audioAutoPlay = 'autoplay' if AUTOPLAY else '')
+    return render_template('load.html', audioAutoPlay = '')
 
 
 @app.route('/video_load')
@@ -243,18 +242,26 @@ def video_feed():
     return load_camera([])
 
 
+@app.route("/start_loaded_videos", methods=['POST'])
+def start_loaded_videos():
+    """Called from the `/load` page"""
+    global CAMERA
+    CAMERA.set_status(CameraStatus.PLAYING)
+    print(CAMERA)
+    return jsonify({'camera': 'Playing', 'mode': 'offline'})
+
 @app.route("/pause", methods=['POST'])
 def pause():
     """Called from the HTML page"""
-    global IS_PLAYING
-    IS_PLAYING = not IS_PLAYING
-    print("is Playing: ", IS_PLAYING)
-    return jsonify({'playing': IS_PLAYING})
+    global CAMERA
+    CAMERA.set_status(CameraStatus.PLAYING)
+    print(CAMERA)
+    return jsonify({'camera': CAMERA})
 
 @app.route("/wav")
 def wav():
     """Get audio file and synchronize it to the images being displayed"""
-    return Response(generate_wav("samples/sample.wav"), mimetype="audio/x-wav")
+    return Response(generate_wav(COPIED_VIDEO_PATH / "output/temp.wav"), mimetype="audio/x-wav")
 
 @app.route("/wav_load")
 def wav_load():
@@ -264,10 +271,6 @@ def wav_load():
 # Main function
 def main():
     """Main watchdog function to observe files created by heygem-gen-video docker service"""
-    # Initialize
-    global AUTOPLAY, IS_PLAYING
-    AUTOPLAY  = False
-    IS_PLAYING = True
     # Watchdog subscribe
     observer = Observer()
     handler = TempFileHandler()

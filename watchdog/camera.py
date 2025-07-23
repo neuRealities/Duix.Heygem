@@ -1,8 +1,16 @@
 """Module to get camera feed from video file queue"""
 import os
+from enum import Enum
 import cv2
 import numpy as np
-import time
+
+class CameraStatus(Enum) :
+    """Status options for camera"""
+    OFF = 0
+    IDLE = 1
+    WAITING = 2
+    PLAYING = 3
+    FINISHED = 4
 
 class VideoCamera(object):
     """Use opencv to read from video files and create stream"""
@@ -14,7 +22,7 @@ class VideoCamera(object):
         # If you decide to use video.mp4, you must have this file in the folder
         # as the main.py.
 
-        self.idle = True
+        self.status = CameraStatus.OFF
         self.framenum = 0
         self.video_queue = []
         self.video_index = 0
@@ -42,10 +50,16 @@ class VideoCamera(object):
         _, self.latest_frame_jpeg = cv2.imencode('.jpg', placeholder_image)
 
     def __str__(self):
-        return f"Camera object. Video queue: {len(self.video_queue)}. Current video: {self.video}. idle: {self.idle}"
+        return f"Camera object. Status: {self.status} Video queue: {len(self.video_queue)}. Current video: {self.video}"
 
     def __del__(self):
         self.video['capture'].release()
+
+    def set_status(self, status:CameraStatus):
+        """ Set camera status""" 
+        self.status = status
+        if self.log_progress:
+            print(f"Set camera status to {status}")
 
     def set_frame_output_dir(self, output_frames_dir: os.PathLike):
         """Set frame directory to save each video frame for testing"""
@@ -55,7 +69,7 @@ class VideoCamera(object):
 
     def get_frame(self):
         """Use opencv get get frame image from a loaded video, otherwise load video in queue"""
-        if self.idle:
+        if self.status == CameraStatus.IDLE:
             return False, self.latest_frame_jpeg.tobytes(), self.framenum, self.video
         if not self.video or not self.video['capture']: # load next video in queue
             self.next_video()
@@ -95,18 +109,22 @@ class VideoCamera(object):
         """Load multiple videos into queue"""
         for video in video_list:
             self.add_video(video, load_time)
-        self.idle = False
 
     def add_video(self, path: os.PathLike, load_time:float):
         """Add videos, from watchdog or bulk add"""
-
         prev_video = self.video_queue[-1] if self.video_queue else {}
-        prev_load_time = prev_video['load_time'] if prev_video else 0
+        prev_load_time = prev_video['load_time'] if prev_video else self.video_start
         self.video_queue.append({'path':path, 'load_time': load_time})
+        self.last_video_load_time = load_time
+
+        video_queue_length = len(self.video_queue)
+        if not self.video or not self.video['capture']: # load next video in queue
+            if video_queue_length == 0:
+                self.next_video()
+
         if self.log_progress:
             latency = load_time - prev_load_time
             print(f"Video [{ len(self.video_queue) - 1 }] added: {os.path.basename(path)}. load_time: {load_time-self.video_start} latency:{latency}")
-
 
     def next_video(self):
         """Load new videos from top of queue if available"""
