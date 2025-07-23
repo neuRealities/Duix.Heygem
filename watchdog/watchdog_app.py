@@ -89,33 +89,42 @@ def gen(camera, frame_rate = 28.18):
     # restrictions on unwanted audio play without user intervention
     IS_PLAYING = AUTOPLAY
     print(f"frame_rate = {frame_rate}")
-    current_time = time.time()
-    avg_frame_time = 0
-    delta_sleep = 0
+    avg_frame_duration = 0
+    sleep_time = 1.0 / frame_rate
+    delta_time = 0
+    play_time = 0
+
     while True:
         if IS_PLAYING:
             # Time retrieval time
-            retrieval_time_start = time.time()
+            frame_start = time.time()
             success, frame, framenum, video,  = camera.get_frame()
-            retrieval_time = time.time() - retrieval_time_start
+            retrieval_duration = time.time() - frame_start
             if success:
-                sleep_time = 1.0 / frame_rate
-                time_diff = time.time() - current_time
-                current_time = time.time()
-                avg_frame_time = ((avg_frame_time * (framenum)) + sleep_time) / (framenum + 1)
+
+                frameprint_start = time.time()
+                videofilename_without_ext, _ = os.path.splitext(os.path.basename(video['path'])) 
+                avg_frame_duration = ((avg_frame_duration * (framenum)) + sleep_time) / (framenum + 1)
                 # Time print
-                start_print_time = time.time()
                 if DEBUG_TIMING:
-                    print(f"Frame: {framenum:03d}. Video: {video['index']:03d}, Vid.Frame: {video['current_frame']} Diff: {time_diff:.8f} Avg: {avg_frame_time:.8f}")
-                print_time = time.time() - start_print_time
+                    print(f"Frame: {framenum:03d}. Video Queue: {video['index']:03d} Video File: {videofilename_without_ext}, Vid.Frame: {video['current_frame']}, delta_time:{delta_time:.7f} Avg Frame Duration: {avg_frame_duration:.8f}")
+                frameprint_duration = time.time() - frameprint_start
+
                 # Time actual sleep
-                requested_sleep = sleep_time - (retrieval_time + print_time + delta_sleep)
-                start_sleep = time.time()
-                time.sleep(requested_sleep)
-                total_sleep_time =time.time() - start_sleep
-                delta_sleep = total_sleep_time - requested_sleep
+                sleep_start = time.time()
+                elapsed_time = retrieval_duration + frameprint_duration + delta_time
+                requested_sleep = sleep_time - elapsed_time
+                time.sleep(max(requested_sleep, 0))
+                sleep_duration = time.time() - sleep_start
+                delta_sleep = sleep_duration - requested_sleep
+
+                # Meet timing expectations
+                expected_play_time = framenum / frame_rate
                 if DEBUG_TIMING:
-                    print(f"Times: current_time: {current_time:.8f}, retrieval_time: {retrieval_time:.8f}, print_time: {print_time:.8f}, total_sleep_time: {total_sleep_time:.8f} delta_sleep: {delta_sleep:.8f}")
+                    print(f"Times: expected:{expected_play_time:.7f}, play: {play_time:.7f}, frame_duration:{frame_duration:.7f}, sleep: {sleep_duration:.7f}, delta_sleep: {delta_sleep:.7f}")
+                frame_duration = time.time() - frame_start # Includes any debug print statements
+                play_time += frame_duration
+                delta_time = play_time - expected_play_time
 
             yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
@@ -146,6 +155,13 @@ def get_audio_length(filepath: os.PathLike):
         duration = frames / float(rate)
     return duration
 
+def get_videofile_index(videofilepath: os.PathLike):
+    """Returns corresponding index integer for synthetic video"""
+    vidfile = os.path.basename(videofilepath)
+    vidfile_without_ext, _ = os.path.splitext(vidfile)
+    return int(vidfile_without_ext)
+
+
 # Flask functions
 app = Flask(__name__)
 
@@ -170,8 +186,16 @@ def video_load():
     onlyfiles.sort()
     # Get existing audio file
     audio_duration = get_audio_length((VIDEO_TEMP_PATH / "source_audio_wav.wav").as_posix())
-    print (f"audio_duration: {audio_duration}")
-    framerate = len(onlyfiles) * 2 / audio_duration
+    # There might be missing videos. Use last video's index as reference
+    print(onlyfiles[-1])
+    last_item_index = get_videofile_index(onlyfiles[-1])
+    # Two frames per expected video. Last video only has 1 frame.
+    num_frames = ((last_item_index + 1) * 2) - 1
+    print (f"Video files: {len(onlyfiles)}. Expected: {last_item_index + 1}. Frames: {num_frames}")
+    print (f"Audio_duration: {audio_duration}")
+    framerate = num_frames / audio_duration
+    framerate = 28.18 # Override
+    print (f"Framerate: {framerate}")
     return load_camera(onlyfiles, framerate)
 
 @app.route('/video_feed')
