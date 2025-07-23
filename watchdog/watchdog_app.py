@@ -1,6 +1,7 @@
 """Module to handle file watchdog functions and stream to web"""
 import os
 import time
+import math
 import wave
 import contextlib
 
@@ -25,7 +26,8 @@ AUTOPLAY   = False
 IS_PLAYING = True
 CAMERA     = VideoCamera()
 DEBUG_FILE_EVENTS = False
-DEBUG_TIMING      = False
+DEBUG_TIMING      = True
+DEFAULT_FPS       = 28.18
 
 def rel_vidpath(abs_path:str):
     """Returns relative path from watched directory, for easier display"""
@@ -35,6 +37,8 @@ def rel_vidpath(abs_path:str):
 class TempFileHandler(FileSystemEventHandler):
     """Watchdog class to handle file system events"""
     def on_created(self, event):
+        if event.is_directory:
+            handle_created_directories(rel_vidpath(event.src_path))
         print_file_event("Created", rel_vidpath(event.src_path), event.is_directory)
         return super().on_created(event)
 
@@ -58,30 +62,60 @@ def print_file_event(action:str, rpath:str, is_directory:bool):
         print(f"{action} {"Directory" if is_directory else "File" } : {rpath}")
 
 
-def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath: os.PathLike):
-    """Handler when created or modified files have been closed"""
-    print_file_event(action, rpath, is_directory)
+def handle_created_directories(rpath: os.PathLike):
+    """Handler when directories are created"""
     global CAMERA
-    if rpath == "output/audio_data.npy":
-        # The audio file has been writen, and processed into numpy
-        # We are ready to start receiving video files
-        print(f"audio_data.npy: {CAMERA}")
-        # Clear previous run
-        CAMERA.clear_videos()
+    if rpath == 'output':
+        # Clean previous files
+        print ("Cleaning previous copied files")
         if os.path.exists(COPIED_VIDEO_PATH):
             shutil.rmtree(COPIED_VIDEO_PATH)
-        os.makedirs(COPIED_VIDEO_PATH, exist_ok=True)
+        # Clean previous run
+        CAMERA.clear_videos()
+    os.makedirs(COPIED_VIDEO_PATH / rpath, exist_ok=True)
+    print (f"Creating copied directory: {rpath}")
+
+
+def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath: os.PathLike):
+    """Handler when created or modified files have been closed"""
+    global CAMERA, DEFAULT_FPS
+    print_file_event(action, rpath, is_directory)
+    # Copy files before they're gone
+    shutil.copy(fpath, COPIED_VIDEO_PATH / rpath)
+
+    # Handle file progress (output subdir).
+    # 1. Start with saved audio file: temp.wav and numpy audio_data.npy
+    # 2. Creates a directory png, and avi
+    # 3. As video generation runs, png files and .avi video files are saved
+    # 4. Final files are saved: mylist.txt, result.avi (video-only)
+    # 5. Saves mp4 video + audio version output-r.mp4 in parent directory
+    # 6. Deleted the output directory
+
+    # 1. Start with saved audio file: temp.wav and numpy audio_data.npy
+    if rpath == "output/temp.wav":
+        # The audio file has been writen. We are ready to start receiving video files
+        audio_length = get_audio_length(fpath)
+        expected_frames = int(DEFAULT_FPS * audio_length) - 1
+        expected_videos = math.ceil(expected_frames / 2)
+        print(f"Audio: {audio_length}s, Expected: Frames: {expected_frames}, Videos: {expected_videos}")
+        # Clear previous run
+        CAMERA.clear_videos()
+        CAMERA.audio_start = time.time()
+        CAMERA.video_start = -1
         return
 
+    # 3. As video generation runs, png files and .avi video files are saved
     synthesis_vid_dir = "output/avi/"
     if rpath.startswith(synthesis_vid_dir):
-        # Copy the intermediate file before it's too late
-        os.makedirs(COPIED_VIDEO_PATH / synthesis_vid_dir, exist_ok=True)
-        shutil.copy(fpath, COPIED_VIDEO_PATH / rpath)
-        CAMERA.add_video(COPIED_VIDEO_PATH / rpath)
+        # Add to camera video queue
+        CAMERA.add_video(COPIED_VIDEO_PATH / rpath, time.time())
+        if CAMERA.video_start <= 0:
+            CAMERA.video_start = time.time()
+            if DEBUG_TIMING:
+                print(f"Audio to Video latency: {CAMERA.video_start - CAMERA.audio_start}s")
         return
 
-def gen(camera, frame_rate = 28.18):
+def gen(camera, frame_rate = DEFAULT_FPS):
     """Get frames from camera class"""
     global AUTOPLAY, IS_PLAYING
     # Set Initial state.
@@ -133,15 +167,15 @@ def gen(camera, frame_rate = 28.18):
             yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
-def load_camera(video_list:list, frame_rate=28.18):
+def load_camera(video_list:list, frame_rate=DEFAULT_FPS):
     """Initialize camera object from cv2.VideoCapture with video queue"""
     global CAMERA, FRAMEIMAGE_PATH
     CAMERA.clear_videos()
     if os.path.exists(FRAMEIMAGE_PATH):
         shutil.rmtree(FRAMEIMAGE_PATH)
     CAMERA.set_frame_output_dir(FRAMEIMAGE_PATH.as_posix())
-    CAMERA.load_videos(video_list)
-    print(CAMERA)
+    CAMERA.load_videos(video_list, time.time())
+    print("load_camera:", CAMERA)
     return Response(gen(CAMERA, frame_rate),
         mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -184,25 +218,24 @@ def load():
 
 @app.route('/video_load')
 def video_load():
-    """Get camera and load existiing videos"""
-    onlyfiles = [
+    """Get camera and load existing videos"""
+    video_files = [
         os.path.join(dirpath,f)
-            for (dirpath, dirnames, filenames) in os.walk(COPIED_VIDEO_PATH)
+            for (dirpath, dirnames, filenames) in os.walk(COPIED_VIDEO_PATH / 'output/avi')
         for f in filenames]
-    onlyfiles.sort()
+    video_files.sort()
     # Get existing audio file
     audio_duration = get_audio_length((VIDEO_TEMP_PATH / "source_audio_wav.wav").as_posix())
     # There might be missing videos. Use last video's index as reference
-    print(onlyfiles[-1])
-    last_item_index = get_videofile_index(onlyfiles[-1])
+    last_item_index = get_videofile_index(video_files[-1])
     # Two frames per expected video. Last video only has 1 frame.
     num_frames = ((last_item_index + 1) * 2) - 1
-    print (f"Video files: {len(onlyfiles)}. Expected: {last_item_index + 1}. Frames: {num_frames}")
+    print (f"Video files: {len(video_files)}. Expected: {last_item_index + 1}. Frames: {num_frames}")
     print (f"Audio_duration: {audio_duration}")
     framerate = num_frames / audio_duration
-    framerate = 28.18 # Override
+    framerate = DEFAULT_FPS # Override
     print (f"Framerate: {framerate}")
-    return load_camera(onlyfiles, framerate)
+    return load_camera(video_files, framerate)
 
 @app.route('/video_feed')
 def video_feed():
