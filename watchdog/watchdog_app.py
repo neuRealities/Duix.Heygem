@@ -103,11 +103,14 @@ def gen(camera, frame_rate = 28.18):
             if success:
 
                 frameprint_start = time.time()
-                videofilename_without_ext, _ = os.path.splitext(os.path.basename(video['path'])) 
-                avg_frame_duration = ((avg_frame_duration * (framenum)) + sleep_time) / (framenum + 1)
+                videofilename_without_ext, _ = os.path.splitext(os.path.basename(video['path']))
+                avg_frame_duration = ((avg_frame_duration * framenum) + sleep_time) / (framenum + 1)
                 # Time print
                 if DEBUG_TIMING:
-                    print(f"Frame: {framenum:03d}. Video Queue: {video['index']:03d} Video File: {videofilename_without_ext}, Vid.Frame: {video['current_frame']}, delta_time:{delta_time:.7f} Avg Frame Duration: {avg_frame_duration:.8f}")
+                    print(f"Frame: {framenum:03d}. Video Queue: {video['index']:03d}, " \
+                        f"Video File: {videofilename_without_ext}, " \
+                        f"Vid.Frame: {video['current_frame']}, " \
+                        f"delta_time:{delta_time:.7f} Avg Frame Duration: {avg_frame_duration:.8f}")
                 frameprint_duration = time.time() - frameprint_start
 
                 # Time actual sleep
@@ -121,10 +124,11 @@ def gen(camera, frame_rate = 28.18):
                 # Meet timing expectations
                 expected_play_time = framenum / frame_rate
                 if DEBUG_TIMING:
-                    print(f"Times: expected:{expected_play_time:.7f}, play: {play_time:.7f}, frame_duration:{frame_duration:.7f}, sleep: {sleep_duration:.7f}, delta_sleep: {delta_sleep:.7f}")
+                    print(f"Times: expected:{expected_play_time:.7f}, play: {play_time:.7f}, " \
+                        f"sleep: {sleep_duration:.7f}, delta_sleep: {delta_sleep:.7f}")
                 frame_duration = time.time() - frame_start # Includes any debug print statements
                 play_time += frame_duration
-                delta_time = play_time - expected_play_time
+                delta_time = play_time - expected_play_time # Carries on to next frame sleep request
 
             yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
@@ -133,6 +137,8 @@ def load_camera(video_list:list, frame_rate=28.18):
     """Initialize camera object from cv2.VideoCapture with video queue"""
     global CAMERA, FRAMEIMAGE_PATH
     CAMERA.clear_videos()
+    if os.path.exists(FRAMEIMAGE_PATH):
+        shutil.rmtree(FRAMEIMAGE_PATH)
     CAMERA.set_frame_output_dir(FRAMEIMAGE_PATH.as_posix())
     CAMERA.load_videos(video_list)
     print(CAMERA)
@@ -170,10 +176,10 @@ def index():
     """Render main flask page"""
     return render_template('index.html', audioAutoPlay = 'autoplay' if AUTOPLAY else '')
 
-@app.route('/test')
-def test():
-    """Render test flask page"""
-    return render_template('test.html', audioAutoPlay = 'autoplay' if AUTOPLAY else '')
+@app.route('/load')
+def load():
+    """Render video load flask page"""
+    return render_template('load.html', audioAutoPlay = 'autoplay' if AUTOPLAY else '')
 
 
 @app.route('/video_load')
