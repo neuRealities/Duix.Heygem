@@ -8,9 +8,12 @@ class CameraStatus(Enum) :
     """Status options for camera"""
     OFF = 0
     IDLE = 1
-    WAITING = 2
-    PLAYING = 3
-    FINISHED = 4
+    WAITING_AUDIO = 2
+    WAITING_VIDEO = 3
+    BUFFERING = 4
+    READY = 5
+    PLAYING = 6
+    FINISHED = 7
 
 class VideoCamera(object):
     """Use opencv to read from video files and create stream"""

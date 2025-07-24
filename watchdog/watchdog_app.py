@@ -98,7 +98,7 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
         print(f"Audio: {audio_length}s, Expected: Frames: {expected_frames}, Videos: {expected_videos}")
         # Clear previous run
         CAMERA.clear_videos()
-        CAMERA.set_status(CameraStatus.OFF)
+        CAMERA.set_status(CameraStatus.WAITING_VIDEO)
         CAMERA.audio_start = time.time()
         CAMERA.video_start = -1
         return
@@ -108,7 +108,7 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
     if rpath.startswith(synthesis_vid_dir):
         # Add to camera video queue
         if CAMERA.video_start <= 0:
-            CAMERA.set_status(CameraStatus.IDLE)
+            CAMERA.set_status(CameraStatus.BUFFERING)
             CAMERA.video_start = time.time()
             print(f"Audio to Video latency: {CAMERA.video_start - CAMERA.audio_start}s")
         CAMERA.add_video(COPIED_VIDEO_PATH / rpath, time.time())
@@ -174,7 +174,8 @@ def load_camera(video_list:list, frame_rate=DEFAULT_FPS):
     CAMERA.set_frame_output_dir(FRAMEIMAGE_PATH.as_posix())
     CAMERA.load_videos(video_list, time.time())
     print("load_camera:", CAMERA)
-    CAMERA.set_status(CameraStatus.WAITING)
+    if video_list:
+        CAMERA.set_status(CameraStatus.READY)
     return Response(gen(CAMERA, frame_rate),
         mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -183,8 +184,9 @@ def generate_wav(filepath: os.PathLike):
     with open(filepath, "rb") as fwav:
         data = fwav.read(1024)
         while data:
-            yield data
-            data = fwav.read(1024)
+            if CAMERA.status == CameraStatus.PLAYING:
+                yield data
+                data = fwav.read(1024)
 
 def get_audio_length(filepath: os.PathLike):
     """Get length of audio file"""
@@ -250,13 +252,13 @@ def start_loaded_videos():
     print(CAMERA)
     return jsonify({'camera': 'Playing', 'mode': 'offline'})
 
-@app.route("/pause", methods=['POST'])
-def pause():
-    """Called from the HTML page"""
+@app.route("/start_streaming", methods=['POST'])
+def start_streaming():
+    """Called from the `/` HTML page"""
     global CAMERA
-    CAMERA.set_status(CameraStatus.PLAYING)
+    CAMERA.set_status(CameraStatus.WAITING_AUDIO)
     print(CAMERA)
-    return jsonify({'camera': CAMERA})
+    return jsonify({'camera': 'Playing', 'mode': 'streaming'})
 
 @app.route("/wav")
 def wav():
