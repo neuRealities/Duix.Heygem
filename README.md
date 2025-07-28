@@ -382,6 +382,27 @@ We also provide  APl at DUIX Platform: https://docs.duix.com/api-reference/api/I
    - \#292
 4. [Ubuntu22.04 Installation Documentation](https://github.com/GuijiAI/HeyGem.ai?tab=readme-ov-file#ubuntu-2204-installation)
 
+### **[neuRealities Changes]**
+
+We have added additional features for neuREalities local deployment
+
+1. No hard coded drive paths
+  * The shared directory for files is now in the user home directory: `/root/heygem_data/`
+  * Username not `root`? Use a shell variable `USER=jorge docker compose -f docker-compose-linux.yml up -d` 
+2. Gradio UI: This prevents having to run the windows-based UI client.
+  * Install ffmpeg in yuor machine: 
+    * `sudo apt udate`
+    * `sudo apt install ffmpeg`
+  * Install a loal virtual environment: pyenv, poetry, uv, etc)
+  * `pip install -r requirements.txt`
+  * `python app.py`
+3. Watchdog: Will watch the video systhesis process, and will stream output intermediate stills
+  * `cd watchdog`
+  * `python watchdog_app.py`
+  * Open the web interface
+  * Used a trained human for Digital Human Synthesis in another browser tab
+
+
 ## 6. FAQ
 
 ### **Self-Check Steps Before Asking Questions**
