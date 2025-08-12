@@ -391,16 +391,36 @@ We have added additional features for neuREalities local deployment
   * Username not `root`? Use a shell variable `USER=jorge docker compose -f docker-compose-linux.yml up -d` 
 2. Gradio UI: This prevents having to run the windows-based UI client.
   * Install ffmpeg in yuor machine: 
-    * `sudo apt udate`
+    * `sudo apt update`
     * `sudo apt install ffmpeg`
-  * Install a loal virtual environment: pyenv, poetry, uv, etc)
+  * Install a local virtual environment: pyenv, poetry, uv, etc)
   * `pip install -r requirements.txt`
-  * `python app.py`
 3. Watchdog: Will watch the video systhesis process, and will stream output intermediate stills
-  * `cd watchdog`
-  * `python watchdog_app.py`
   * Open the web interface
   * Used a trained human for Digital Human Synthesis in another browser tab
+
+#### Running
+
+You can use:
+  * `./bin/up` to start the containers and servers
+  * `./bin/stop` to stop the servers
+  * `./bin/down` to stop the containers & servers
+
+Or manually:
+
+##### Docker:
+
+  * `cd deploy`
+  * `docker compose -f docker-compose-linux.yml up -d`
+
+##### WebUI: In its own console
+
+  * `python app.py`
+
+##### Watchdog: In its own console
+
+  * `cd watchdog`
+  * `python watchdog_app.py`
 
 
 ## 6. FAQ
