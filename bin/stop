@@ -1,0 +1,4 @@
+#!/bin/bash
+echo "Stopping WebUI and Watchdog servers..."
+kill -INT $(ps aux | grep '[p]ython app.py' | awk '{print $2}')
+kill $(ps aux | grep '[p]ython watchdog/watchdog_app.py' | awk '{print $2}')

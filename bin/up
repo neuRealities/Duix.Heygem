@@ -1,0 +1,17 @@
+#!/bin/bash
+echo "Starting Duix.HeyGem containers in detached mode..."
+cd "deploy"
+docker compose -f docker-compose-linux.yml up -d
+cd ..
+
+echo "Opening WebUI Gradio Interface..."
+URL="http://127.0.0.1:7860/"
+xdg-open $URL || sensible-browser $URL || x-www-browser $URL || gnome-open $URL || explorer.exe $URL > /dev/null
+# Open up browsers
+echo "Opening Watchdog App..."
+URL="http://127.0.0.1:5000/load"
+xdg-open $URL || sensible-browser $URL || x-www-browser $URL || gnome-open $URL || explorer.exe $URL > /dev/null
+
+echo "Running WebUI and Watchdog..."
+# Run two apps side-by-side since they both output to console
+python watchdog/watchdog_app.py & python app.py --lang en
