@@ -1,11 +1,11 @@
 <html>
   <head>
-    <title>Test Video Loading Demonstration</title>
+    <title>Test Synthesized Video Loading Demonstration</title>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
   </head>
   <body>
-    <h1>Video Loading Demonstration</h1>
-    <audio id="audioControls" controls autoplay onplay="start_play()">
+    <h1>Synthesized Video Loading Demonstration</h1>
+    <audio id="audioControls" controls {{ audioAutoPlay }} hidden onended="stop_play()">
         <source src="{{ url_for('wav_load') }}" type="audio/wav">
         Your browser does not support the audio element.
     </audio>
@@ -13,13 +13,10 @@
     <img id="bg" src="{{ url_for('video_load') }}">
 
     <script>
-    function start_play() {
-      document.getElementById('audioControls').controls = false;
-      $.post("/start_loaded_videos",
-      {
-        action: "play"
-      });
-      document.getElementById("demo").innerHTML = "The video has started to play";
+    function stop_play() {
+      document.getElementById("demo").innerHTML = "The video has ended";
+      $.post("/stop_loaded_videos",
+        { action: "stop" });
     }
     </script>
   </body>

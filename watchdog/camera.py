@@ -8,8 +8,8 @@ class CameraStatus(Enum) :
     """Status options for camera"""
     OFF = 0
     IDLE = 1
-    WAITING_AUDIO = 2
-    WAITING_VIDEO = 3
+    AUDIO_LOADED = 2
+    VIDEO_LOADED = 3
     BUFFERING = 4
     READY = 5
     PLAYING = 6
@@ -48,6 +48,7 @@ class VideoCamera(object):
         self.output_frames_dir = "frames"
         # Logging
         self.log_progress = True
+        self.log_files    = True
         # Testing
         placeholder_image = np.zeros((400, 600, 3), dtype=np.uint8)
         _, self.latest_frame_jpeg = cv2.imencode('.jpg', placeholder_image)
@@ -58,11 +59,24 @@ class VideoCamera(object):
     def __del__(self):
         self.video['capture'].release()
 
-    def set_status(self, status:CameraStatus):
+    def reset(self):
+        """Resets camera for multiple page loads"""
+        self.status = CameraStatus.OFF
+        self.video['capture'].release()
+        self.clear_videos()
+        self.framenum = 0
+        self.video_index = 0
+        self.audio_start = 0
+        self.video_start = 0
+        self.last_video_load_time = -1
+        self.video_rate  = 0
+
+
+    def set_status(self, status:CameraStatus, label:str=""):
         """ Set camera status""" 
         self.status = status
         if self.log_progress:
-            print(f"Set camera status to {status}")
+            print(f"{status} {label}")
 
     def set_frame_output_dir(self, output_frames_dir: os.PathLike):
         """Set frame directory to save each video frame for testing"""
@@ -125,7 +139,7 @@ class VideoCamera(object):
             if video_queue_length == 0:
                 self.next_video()
 
-        if self.log_progress:
+        if self.log_files:
             latency = load_time - prev_load_time
             print(f"Video [{ len(self.video_queue) - 1 }] added: {os.path.basename(path)}. load_time: {load_time-self.video_start} latency:{latency}")
 
