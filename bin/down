@@ -5,4 +5,4 @@ cd "deploy"
 docker compose -f docker-compose-linux.yml down
 cd ..
 
-./stop
+./bin/stop
