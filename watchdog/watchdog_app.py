@@ -286,13 +286,21 @@ def video_load():
     # There might be missing videos. Use last video's index as reference
     last_item_index = get_videofile_index(video_files[-1])
     # Two frames per expected video. Last video only has 1 frame.
-    num_frames = ((last_item_index + 1) * 2) - 1
-    framerate = num_frames / audio_duration
+    # Synthesized video is shorter than audio length
+    VIDFRAMEOFFSET = 1 # Taken empirically
+    num_vid_frames  = (last_item_index * 2) + 1 # Video has extra frame
+    audio_based_framerate = num_vid_frames / audio_duration
+    video_duration  = (num_vid_frames - VIDFRAMEOFFSET) / audio_based_framerate
+    video_framerate = num_vid_frames / video_duration
+
     if LOG_FLASK:
-        print (f"Video files: {len(video_files)}. Expected: {last_item_index + 1}. Frames: {num_frames}")
+        print (f"Video files: {len(video_files)}. Expected: {last_item_index + 1}. Frames: {num_vid_frames}")
+        print (f"audio_based_framerate: {audio_based_framerate}")
         print (f"Audio_duration: {audio_duration}")
-        print (f"Framerate: {framerate}")
-    return load_camera(video_files, framerate)
+        print (f"video_duration: {video_duration}")
+        print (f"video_framerate: {video_framerate}")
+
+    return load_camera(video_files, video_framerate)
 
 @app.route('/video_feed')
 def video_feed():
