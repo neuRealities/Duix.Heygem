@@ -2,7 +2,7 @@
 
 ## Closes issue(s) 🤺
 
-[Jira ticket #](ticket url)
+[Jira_ticket_#](ticket_url)
 
 ## How to test / repo 👣
 
@@ -13,6 +13,8 @@
 ## Screenshots 📸
 
 ## What GIF best describes this PR? 🤓
+
+![Label](giphy_url)
 
 ## Changes include 🏭
 
