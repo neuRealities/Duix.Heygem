@@ -8,12 +8,17 @@ class CameraStatus(Enum) :
     """Status options for camera"""
     OFF = 0
     IDLE = 1
-    AUDIO_LOADED = 2
-    VIDEO_LOADED = 3
-    BUFFERING = 4
-    READY = 5
-    PLAYING = 6
-    FINISHED = 7
+    # Offline Status
+    AUDIO_LOADED     = 10
+    VIDEO_LOADED     = 11
+    OFFLINE_PLAY     = 12
+    OFFLINE_FINISHED = 13
+    # Streaming Status
+    AUDIO_GENERATED  = 20
+    VIDEO_BUFFERING  = 21
+    VIDEO_READY      = 22
+    STREAM_PLAY      = 23
+    STREAM_FINISHED  = 24
 
 class VideoCamera(object):
     """Use opencv to read from video files and create stream"""

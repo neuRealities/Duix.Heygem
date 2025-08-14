@@ -19,7 +19,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 LOG_FILE_EVENTS = True
-LOG_TIMING      = True
+LOG_TIMING      = False
 LOG_CAMERA      = True
 LOG_FLASK       = True
 DEFAULT_FPS     = 28.18
@@ -127,7 +127,7 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
             print(f"Audio: {audio_length}s, Expected: Frames: {expected_frames}, Videos: {expected_videos}")
         # Clear previous run
         CAMERA.clear_videos()
-        CAMERA.set_status(CameraStatus.BUFFERING, "handle_closed_files")
+        CAMERA.set_status(CameraStatus.AUDIO_GENERATED, "handle_closed_files")
         CAMERA.audio_start = time.time()
         CAMERA.video_start = -1
         return
@@ -137,14 +137,20 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
     if rpath.startswith(synthesis_vid_dir):
         # Add to camera video queue
         if CAMERA.video_start <= 0:
-            CAMERA.set_status(CameraStatus.BUFFERING, "synthesis_vid_dir")
+            CAMERA.set_status(CameraStatus.VIDEO_BUFFERING, "synthesis_vid_dir")
             CAMERA.video_start = time.time()
             print(f"Audio to Video latency: {CAMERA.video_start - CAMERA.audio_start}s")
         CAMERA.add_video(COPIED_VIDEO_PATH / TASK_ID / rpath, time.time())
         return
 
-def gen(camera:VideoCamera, frame_rate = DEFAULT_FPS):
-    """Get frames from camera class"""
+def genStream(camera:VideoCamera, frame_rate = DEFAULT_FPS):
+    success, frame, framenum, video,  = camera.get_frame()
+    yield (b'--frame\r\n'
+        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+
+
+def genLoad(camera:VideoCamera, frame_rate = DEFAULT_FPS):
+    """Get frames from camera class by loading existing videos"""
     # Set Initial state.
     # Notice that IS_PLAYING=True might not work due to browser
     # restrictions on unwanted audio play without user intervention
@@ -153,8 +159,8 @@ def gen(camera:VideoCamera, frame_rate = DEFAULT_FPS):
     delta_time = 0
     play_time = 0
 
-    while camera.status != CameraStatus.FINISHED:
-        if camera.status == CameraStatus.PLAYING:
+    while camera.status != CameraStatus.OFFLINE_FINISHED:
+        if camera.status == CameraStatus.OFFLINE_PLAY:
             # Time retrieval time
             frame_start = time.time()
             success, frame, framenum, video,  = camera.get_frame()
@@ -202,7 +208,7 @@ def load_camera(video_list:list, frame_rate=DEFAULT_FPS):
     CAMERA.load_videos(video_list, time.time())
     if video_list:
         update_camera_status(CameraStatus.VIDEO_LOADED, "load_camera: videos loaded")
-    return Response(gen(CAMERA, frame_rate),
+    return Response(genLoad(CAMERA, frame_rate),
         mimetype='multipart/x-mixed-replace; boundary=frame')
 
 def generate_wav(filepath: os.PathLike):
@@ -212,7 +218,7 @@ def generate_wav(filepath: os.PathLike):
         if data:
             update_camera_status(CameraStatus.AUDIO_LOADED, "generate_wav")
         while data:
-            if CAMERA.status == CameraStatus.PLAYING:
+            if CAMERA.status == CameraStatus.OFFLINE_PLAY:
                 yield data
                 data = fwav.read(1024)
 
@@ -261,11 +267,11 @@ def update_camera_status(new:CameraStatus, label:str=""):
         return
     if new == CameraStatus.AUDIO_LOADED:
         if CAMERA.status == CameraStatus.VIDEO_LOADED:
-            CAMERA.set_status(CameraStatus.PLAYING, label)
+            CAMERA.set_status(CameraStatus.OFFLINE_PLAY, label)
             return
     if new == CameraStatus.VIDEO_LOADED:
         if CAMERA.status == CameraStatus.AUDIO_LOADED:
-            CAMERA.set_status(CameraStatus.PLAYING, label)
+            CAMERA.set_status(CameraStatus.OFFLINE_PLAY, label)
             return
     CAMERA.set_status(new, label)
 
@@ -280,15 +286,23 @@ def index():
     """Render main flask page"""
     return render_template('index.html')
 
+###########
+# OFFLINE #
+###########
+
 @app.route('/load')
 def load():
     """Render video load flask page"""
     return render_template('load.html', audioAutoPlay = 'autoplay')
 
-@app.route('/live')
-def live():
-    """Render video load flask page"""
-    return render_template('live.html', audioAutoPlay = 'autoplay')
+@app.route("/wav_load")
+def wav_load():
+    """Get audio file and synchronize it to the images being displayed"""
+    last_task_dir, last_task_id = get_load_directory()
+    wav_file = last_task_dir / "temp.wav"
+    if LOG_FLASK:
+        print (f"Laod wav_file: {wav_file}")
+    return Response(generate_wav(last_task_dir / "temp.wav"), mimetype="audio/x-wav")
 
 @app.route('/video_load')
 def video_load():
@@ -305,7 +319,6 @@ def video_load():
             for (dirpath, dirnames, filenames) in os.walk(avi_dir)
         for f in filenames]
     video_files.sort()
-    #update_camera_status(CameraStatus.IDLE, "video_load")
     # Get existing audio file
     wav_file = last_task_dir / "temp.wav"
 
@@ -329,26 +342,21 @@ def video_load():
 
     return load_camera(video_files, video_framerate)
 
-@app.route('/video_feed')
-def video_feed():
-    """Get camera with empty video queue"""
-    return load_camera([])
-
 @app.route("/stop_loaded_videos", methods=['POST'])
 def stop_loaded_videos():
     """Called from the `/load` page"""
-    CAMERA.set_status(CameraStatus.FINISHED, "stop_loaded_videos")
+    CAMERA.set_status(CameraStatus.OFFLINE_FINISHED, "stop_loaded_videos")
     CAMERA.reset()
     return jsonify({'camera': 'Idle', 'mode': 'offline'})
 
-@app.route("/start_streaming", methods=['POST'])
-def start_streaming():
-    """Called from the `/` HTML page"""
-    global CAMERA
-    CAMERA.set_status(CameraStatus.AUDIO_LOADED, "start_streaming")
-    if LOG_FLASK:
-        print(CAMERA)
-    return jsonify({'camera': 'Playing', 'mode': 'streaming'})
+##########
+# STREAM #
+##########
+
+@app.route('/live')
+def live():
+    """Render video load flask page"""
+    return render_template('live.html', audioAutoPlay = 'autoplay')
 
 @app.route("/wav")
 def wav():
@@ -359,14 +367,18 @@ def wav():
     print(f"audio_file: {audio_file}")
     return Response(generate_wav(audio_file), mimetype="audio/x-wav")
 
-@app.route("/wav_load")
-def wav_load():
-    """Get audio file and synchronize it to the images being displayed"""
-    last_task_dir, last_task_id = get_load_directory()
-    wav_file = last_task_dir / "temp.wav"
+@app.route('/video_feed')
+def video_feed():
+    """Get camera with empty video queue while waiting"""
+    return load_camera([])
+
+@app.route("/start_streaming", methods=['POST'])
+def start_streaming():
+    """Called from the `/` HTML page"""
+    CAMERA.set_status(CameraStatus.AUDIO_LOADED, "start_streaming")
     if LOG_FLASK:
-        print (f"wav_file {wav_file}")
-    return Response(generate_wav(last_task_dir / "temp.wav"), mimetype="audio/x-wav")
+        print(CAMERA)
+    return jsonify({'camera': 'Playing', 'mode': 'streaming'})
 
 @app.route("/is_live")
 def is_live():
@@ -374,9 +386,12 @@ def is_live():
     return jsonify({
         'camera': json.dumps(CAMERA.status, default=str),
         'task_id': TASK_ID
-        })
+    })
 
-# Main function
+#################
+# Main function #
+#################
+
 def main():
     """Main watchdog function to observe files created by heygem-gen-video docker service"""
     # Watchdog subscribe

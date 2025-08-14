@@ -64,13 +64,11 @@
       function start_play() {
         audioC = document.getElementById('audioControls')
         audioC.controls = false;
-        /*
         $.post("/start_streaming",
         {
           action: "play",
           task_id: task_id
         });
-        */
         document.getElementById("demo").innerHTML = "The video has started to play";
       }
     </script>
