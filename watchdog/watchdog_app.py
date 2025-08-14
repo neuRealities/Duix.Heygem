@@ -256,13 +256,17 @@ app = Flask(__name__)
 @app.route('/')
 def index():
     """Render main flask page"""
-    return render_template('index.html', audioAutoPlay = '')
+    return render_template('index.html')
 
 @app.route('/load')
 def load():
     """Render video load flask page"""
     return render_template('load.html', audioAutoPlay = 'autoplay')
 
+@app.route('/live')
+def live():
+    """Render video load flask page"""
+    return render_template('live.html', audioAutoPlay = 'autoplay')
 
 @app.route('/video_load')
 def video_load():

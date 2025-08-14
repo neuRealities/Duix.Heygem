@@ -9,7 +9,7 @@ URL="http://127.0.0.1:7860/"
 xdg-open $URL > /dev/null 2>&1 || sensible-browser $URL || x-www-browser $URL || gnome-open $URL || explorer.exe $URL
 # Open up browsers
 echo "Opening Watchdog App..."
-URL="http://127.0.0.1:5000/load"
+URL="http://127.0.0.1:5000/"
 xdg-open $URL > /dev/null 2>&1 || sensible-browser $URL || x-www-browser $URL || gnome-open $URL || explorer.exe $URL
 
 echo "Running WebUI and Watchdog..."

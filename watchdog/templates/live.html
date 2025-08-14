@@ -1,0 +1,26 @@
+<html>
+  <head>
+    <title>Video Streaming Demonstration</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+  </head>
+  <body>
+    <h1>Video Streaming Demonstration</h1>
+    <audio id="audioControls" controls autoplay onplay="start_play()">
+        <source src="{{ url_for('wav') }}" type="audio/wav">
+        Your browser does not support the audio element.
+    </audio>
+    <p id="demo"></p>
+    <img id="bg" src="{{ url_for('video_feed') }}">
+
+    <script>
+    function start_play() {
+      document.getElementById('audioControls').controls = false;
+      $.post("/start_streaming",
+      {
+        action: "play"
+      });
+      document.getElementById("demo").innerHTML = "The video has started to play";
+    }
+    </script>
+  </body>
+</html>
