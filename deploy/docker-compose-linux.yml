@@ -11,11 +11,11 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=0
       - NVIDIA_DRIVER_CAPABILITIES=compute,graphics,utility,video,display
-      - USER=${USER:-root}
+      - HOME=${HOME:-/root}
     ports:
       - '18180:8080'
     volumes:
-      - /home/${USER:-root}/heygem_data/voice/data:/code/data
+      - ${HOME:-/root}/heygem_data/voice/data:/code/data
     command: /bin/bash -c "/opt/conda/envs/python310/bin/python3 tools/api_server.py --listen 0.0.0.0:8080"
     networks:
       - ai_network
@@ -45,7 +45,7 @@ services:
     runtime: nvidia
     privileged: true
     volumes:
-      - /home/${USER:-root}/heygem_data/face2face:/code/data
+      - ${HOME:-/root}/heygem_data/face2face:/code/data
     environment:
       - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
     deploy:
