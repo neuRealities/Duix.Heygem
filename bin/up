@@ -6,11 +6,11 @@ cd ..
 
 echo "Opening WebUI Gradio Interface..."
 URL="http://127.0.0.1:7860/"
-xdg-open $URL || sensible-browser $URL || x-www-browser $URL || gnome-open $URL || explorer.exe $URL > /dev/null
+xdg-open $URL > /dev/null 2>&1 || sensible-browser $URL || x-www-browser $URL || gnome-open $URL || explorer.exe $URL
 # Open up browsers
 echo "Opening Watchdog App..."
 URL="http://127.0.0.1:5000/load"
-xdg-open $URL || sensible-browser $URL || x-www-browser $URL || gnome-open $URL || explorer.exe $URL > /dev/null
+xdg-open $URL > /dev/null 2>&1 || sensible-browser $URL || x-www-browser $URL || gnome-open $URL || explorer.exe $URL
 
 echo "Running WebUI and Watchdog..."
 # Run two apps side-by-side since they both output to console

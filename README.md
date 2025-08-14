@@ -387,8 +387,8 @@ We also provide  APl at DUIX Platform: https://docs.duix.com/api-reference/api/I
 We have added additional features for neuREalities local deployment
 
 1. No hard coded drive paths
-  * The shared directory for files is now in the user home directory: `/root/heygem_data/`
-  * Username not `root`? Use a shell variable `USER=jorge docker compose -f docker-compose-linux.yml up -d` 
+  * The shared directory for files is now in the user home directory. Example for root: `/root/heygem_data/`. Example for user: `/home/user/heygem_data/`
+  * Note: This value is taken from the `$HOME` variable.
 2. Gradio UI: This prevents having to run the windows-based UI client.
   * Install ffmpeg in yuor machine: 
     * `sudo apt update`
@@ -405,6 +405,8 @@ You can use:
   * `./bin/up` to start the containers and servers
   * `./bin/stop` to stop the servers
   * `./bin/down` to stop the containers & servers
+
+The `up` command will try open the server URLs in your preferred browser. If you're in WSL Ubuntu and want to use youur Windows browser, use `export BROWSER=explorer.exe`
 
 Or manually:
 
