@@ -9,9 +9,10 @@
         <source src="{{ url_for('wav_load') }}" type="audio/wav">
         Your browser does not support the audio element.
     </audio>
+    <img id="bg" src="{{ url_for('video_load') }}">
+
     <p id="demo"></p>
     
-    <img id="bg" src="{{ url_for('video_load') }}">
 
     <p><a href="{{ url_for('index') }}" onclick="stop_play('reset')">Return</a></p>
 

@@ -16,8 +16,8 @@ class CameraStatus(Enum) :
     # Streaming Status
     AUDIO_GENERATED  = 20
     VIDEO_BUFFERING  = 21
-    VIDEO_READY      = 22
-    STREAM_PLAY      = 23
+    STREAM_PLAY      = 22
+    STREAM_VIDEO_DONE= 23
     STREAM_FINISHED  = 24
 
 class VideoCamera(object):
@@ -111,6 +111,7 @@ class VideoCamera(object):
         if success: # Always on, even if static
             # Get jpeg into memory buffer
             ret, self.latest_frame_jpeg = cv2.imencode('.jpg', image)
+            print (f"Process video [{self.video['index']}, {self.video['current_frame']}]")
             frame_filepath = self.output_frames_dir + "/" +  \
                 os.path.basename(self.video['path']) + "_"+ \
                 str(self.video['current_frame']).zfill(2) + "_"+ \
@@ -141,7 +142,7 @@ class VideoCamera(object):
         """Add videos, from watchdog or bulk add"""
         prev_video = self.video_queue[-1] if self.video_queue else {}
         prev_load_time = prev_video['load_time'] if prev_video else self.video_start
-        self.video_queue.append({'path':path, 'load_time': load_time})
+        self.video_queue.append({'index': self.video_index, 'path':path, 'load_time': load_time})
         self.last_video_load_time = load_time
 
         video_queue_length = len(self.video_queue)
@@ -151,7 +152,8 @@ class VideoCamera(object):
 
         if self.log_files:
             latency = load_time - prev_load_time
-            print(f"Video [{ len(self.video_queue) - 1 }] added: {os.path.basename(path)}. load_time: {load_time-self.video_start} latency:{latency}")
+            print(f"Queued video id [{self.video_index}], pos [{ len(self.video_queue) - 1 }]: {os.path.basename(path)}. load_time: {load_time-self.video_start} latency:{latency}")
+        self.video_index += 1
 
     def next_video(self):
         """Load new videos from top of queue if available"""
@@ -160,7 +162,7 @@ class VideoCamera(object):
             vidcap = cv2.VideoCapture(video['path'])
             self.last_video_load_time = -1
             self.video = {
-                'index': self.video_index,
+                'index': video['index'],
                 'capture': vidcap,
                 'path': video['path'],
                 'frame_count': int(vidcap.get(cv2.CAP_PROP_FRAME_COUNT)),
@@ -168,7 +170,10 @@ class VideoCamera(object):
                 'current_frame': 0,
                 'load_time': video['load_time']
             }
-            self.video_index += 1
+            if self.log_files:
+                print (f"Load video id [{self.video['index']}]: {self.video_queue[0]}")
             self.video_queue.pop(0)
         else:
+            if self.status == CameraStatus.STREAM_VIDEO_DONE:
+                self.set_status(CameraStatus.STREAM_FINISHED)
             self.video = None

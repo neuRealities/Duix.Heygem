@@ -18,7 +18,7 @@ from camera import VideoCamera, CameraStatus
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-LOG_FILE_EVENTS = True
+LOG_FILE_EVENTS = False
 LOG_TIMING      = False
 LOG_CAMERA      = True
 LOG_FLASK       = True
@@ -95,8 +95,8 @@ def handle_created_directories(rpath: os.PathLike):
     if not str(rpath).endswith("/avi"):
         # 02. Create a <task_id> folder, so get TASK_ID
         TASK_ID = str(rpath)
-        if LOG_FILE_EVENTS and False:
-            print (f"Cleaning previous copied files for task <{TASK_ID}>")
+        if LOG_FILE_EVENTS:
+            print (f"Task <{TASK_ID}> is cleaning previous copied files")
         if os.path.exists(COPIED_VIDEO_PATH):
             shutil.rmtree(COPIED_VIDEO_PATH)
         # Clean previous run
@@ -119,7 +119,6 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
     # 03. Copy audio file as <task_id>/temp.wav
     if rpath == f"{TASK_ID}/temp.wav":
         # The audio file has been writen. We are ready to start receiving video files
-        print(f"Step 03: fpath: {fpath}")
         audio_length = get_audio_length(fpath)
         expected_frames = int(DEFAULT_FPS * audio_length) - 1
         expected_videos = math.ceil(expected_frames / 2)
@@ -127,7 +126,7 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
             print(f"Audio: {audio_length}s, Expected: Frames: {expected_frames}, Videos: {expected_videos}")
         # Clear previous run
         CAMERA.clear_videos()
-        CAMERA.set_status(CameraStatus.AUDIO_GENERATED, "handle_closed_files")
+        CAMERA.set_status(CameraStatus.AUDIO_GENERATED, "temp.wav created")
         CAMERA.audio_start = time.time()
         CAMERA.video_start = -1
         return
@@ -137,24 +136,26 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
     if rpath.startswith(synthesis_vid_dir):
         # Add to camera video queue
         if CAMERA.video_start <= 0:
-            CAMERA.set_status(CameraStatus.VIDEO_BUFFERING, "synthesis_vid_dir")
+            CAMERA.set_status(CameraStatus.VIDEO_BUFFERING, "avi dir created")
             CAMERA.video_start = time.time()
             print(f"Audio to Video latency: {CAMERA.video_start - CAMERA.audio_start}s")
-        CAMERA.add_video(COPIED_VIDEO_PATH / TASK_ID / rpath, time.time())
+        CAMERA.add_video(COPIED_VIDEO_PATH / rpath, time.time())
         return
+    
+    # 07. Save Final files: mylist.txt, result.avi (video-only)
+    if rpath == f"{TASK_ID}/mylist.txt":
+        CAMERA.set_status(CameraStatus.STREAM_VIDEO_DONE, "mylist.txt created")
 
-def genStream(camera:VideoCamera, frame_rate = DEFAULT_FPS):
+def generate_camera(camera:VideoCamera, frame_rate = DEFAULT_FPS):
     """Streaming version of generated camera."""
-    # Lots of shared code with offline
-    # TO DO: Modularize shared calls
     # Set Initial state.
     avg_frame_duration = 0
     sleep_time = 1.0 / frame_rate
     delta_time = 0
     play_time = 0
 
-    while camera.status != CameraStatus.STREAM_FINISHED:
-        if camera.status == CameraStatus.STREAM_PLAY:
+    while camera.status != CameraStatus.OFFLINE_FINISHED or camera.status != CameraStatus.STREAM_FINISHED or camera.status != CameraStatus.STREAM_VIDEO_DONE:
+        if camera.status == CameraStatus.OFFLINE_PLAY or camera.status == CameraStatus.STREAM_PLAY:
             # Time retrieval time
             frame_start = time.time()
             success, frame, framenum, video,  = camera.get_frame()
@@ -192,55 +193,7 @@ def genStream(camera:VideoCamera, frame_rate = DEFAULT_FPS):
             yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
-
-def genLoad(camera:VideoCamera, frame_rate = DEFAULT_FPS):
-    """Get frames from camera class by loading existing videos"""
-    # Set Initial state.
-    avg_frame_duration = 0
-    sleep_time = 1.0 / frame_rate
-    delta_time = 0
-    play_time = 0
-
-    while camera.status != CameraStatus.OFFLINE_FINISHED:
-        if camera.status == CameraStatus.OFFLINE_PLAY:
-            # Time retrieval time
-            frame_start = time.time()
-            success, frame, framenum, video,  = camera.get_frame()
-            retrieval_duration = time.time() - frame_start
-            if success:
-
-                frameprint_start = time.time()
-                videofilename_without_ext, _ = os.path.splitext(os.path.basename(video['path']))
-                avg_frame_duration = ((avg_frame_duration * framenum) + sleep_time) / (framenum + 1)
-                # Time print
-                if LOG_TIMING:
-                    print(f"Frame: {framenum:03d}. Video Queue: {video['index']:03d}, " \
-                        f"Video File: {videofilename_without_ext}, " \
-                        f"Vid.Frame: {video['current_frame']}, " \
-                        f"delta_time:{delta_time:.7f} Avg Frame Duration: {avg_frame_duration:.8f}")
-                frameprint_duration = time.time() - frameprint_start
-
-                # Time actual sleep
-                sleep_start = time.time()
-                elapsed_time = retrieval_duration + frameprint_duration + delta_time
-                requested_sleep = sleep_time - elapsed_time
-                time.sleep(max(requested_sleep, 0))
-                sleep_duration = time.time() - sleep_start
-                delta_sleep = sleep_duration - requested_sleep
-
-                # Meet timing expectations
-                expected_play_time = framenum / frame_rate
-                if LOG_TIMING:
-                    print(f"Times: expected:{expected_play_time:.7f}, play: {play_time:.7f}, " \
-                        f"sleep: {sleep_duration:.7f}, delta_sleep: {delta_sleep:.7f}")
-                frame_duration = time.time() - frame_start # Includes any debug print statements
-                play_time += frame_duration
-                delta_time = play_time - expected_play_time # Carries on to next frame sleep request
-
-            yield (b'--frame\r\n'
-                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
-
-def load_camera(video_list:list, frame_rate=DEFAULT_FPS, offline=True):
+def load_camera(video_list:list, frame_rate=DEFAULT_FPS):
     """Initialize camera object from cv2.VideoCapture with video queue"""
     global CAMERA, FRAMEIMAGE_PATH
     CAMERA.clear_videos()
@@ -248,14 +201,10 @@ def load_camera(video_list:list, frame_rate=DEFAULT_FPS, offline=True):
         shutil.rmtree(FRAMEIMAGE_PATH)
     CAMERA.set_frame_output_dir(FRAMEIMAGE_PATH.as_posix())
     CAMERA.load_videos(video_list, time.time())
-    if video_list:
+    if video_list: # For offline mode
         update_camera_status(CameraStatus.VIDEO_LOADED, "load_camera: videos loaded")
-    if offline:
-        return Response(genLoad(CAMERA, frame_rate),
-            mimetype='multipart/x-mixed-replace; boundary=frame')
-    else: 
-        return Response(genStream(CAMERA, frame_rate),
-            mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(generate_camera(CAMERA, frame_rate),
+        mimetype='multipart/x-mixed-replace; boundary=frame')
 
 def generate_wav(filepath: os.PathLike):
     """Generate audio stream from .wav"""
@@ -345,7 +294,7 @@ def wav_load():
     last_task_dir, last_task_id = get_load_directory()
     wav_file = last_task_dir / "temp.wav"
     if LOG_FLASK:
-        print (f"Laod wav_file: {wav_file}")
+        print (f"Load wav_file: {wav_file}")
     update_camera_status(CameraStatus.AUDIO_LOADED, "wav_load")
     return Response(generate_wav(last_task_dir / "temp.wav"), mimetype="audio/x-wav")
 
