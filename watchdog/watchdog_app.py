@@ -4,30 +4,32 @@ import time
 import math
 import wave
 import contextlib
+import json
 
 # File utilities
 import shutil
 from pathlib import Path
 
 # Flask display
-from flask import Flask, render_template, Response, jsonify
+from flask import Flask, render_template, request, Response, jsonify
 from camera import VideoCamera, CameraStatus
 
 # Watchdog
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-LOG_FILE_EVENTS = False
-LOG_TIMING      = False
+LOG_FILE_EVENTS = True
+LOG_TIMING      = True
 LOG_CAMERA      = True
 LOG_FLASK       = True
-DEFAULT_FPS       = 28.18
+DEFAULT_FPS     = 28.18
 
 # Define paths
 VOICE_DATA_PATH   = Path(os.path.expanduser(r"~/heygem_data/voice/data"))
 VIDEO_TEMP_PATH   = Path(os.path.expanduser(r"~/heygem_data/face2face/temp"))
 COPIED_VIDEO_PATH = Path(os.path.expanduser(r"~/heygem_data/face2face/copy"))
 FRAMEIMAGE_PATH   = Path(os.path.expanduser(r"~/heygem_data/face2face/frameimages"))
+TASK_ID = None
 
 CAMERA     = VideoCamera()
 CAMERA.log_progress = LOG_CAMERA
@@ -65,40 +67,59 @@ def print_file_event(action:str, rpath:str, is_directory:bool):
     if LOG_FILE_EVENTS:
         print(f"{action} {"Directory" if is_directory else "File" } : {rpath}")
 
+# Expect the following events to happen as the rendering progresses
+
+# Audio file creation:
+# 01. Create a <random_id_audio_gen>.wav file in the rpath root
+# 02. Create a <task_id> folder
+# 03. Copy audio file as <task_id>/temp.wav
+# 04. Copy numpy audio data as <task_id>/audio_data.npy
+
+# Image and video creation
+# Example below is from Text Input, not Adio Upload synthesis
+# 05. Create directory <task_id>/avi
+# 06. Run video generation, <number++>.avi video files are saved
+# 07. Save Final files: mylist.txt, result.avi (video-only)
+
+# Merge and cleanup
+# 08. Merge audio+vid with ffmpeg: <task_id>-r.mp4
+# 09. Delete <task_id> directory
+
+
+# Start process with
+# 02. Create a <task_id> folder, in handle_created_directories()
 
 def handle_created_directories(rpath: os.PathLike):
     """Handler when directories are created"""
-    global CAMERA
-    if rpath == 'output':
-        # Clean previous files
-        if LOG_FILE_EVENTS:
-            print ("Cleaning previous copied files")
+    global TASK_ID
+    if not str(rpath).endswith("/avi"):
+        # 02. Create a <task_id> folder, so get TASK_ID
+        TASK_ID = str(rpath)
+        if LOG_FILE_EVENTS and False:
+            print (f"Cleaning previous copied files for task <{TASK_ID}>")
         if os.path.exists(COPIED_VIDEO_PATH):
             shutil.rmtree(COPIED_VIDEO_PATH)
         # Clean previous run
         CAMERA.clear_videos()
-    os.makedirs(COPIED_VIDEO_PATH / rpath, exist_ok=True)
-    print (f"Creating copied directory: {rpath}")
 
+    # Copy directory
+    os.makedirs(COPIED_VIDEO_PATH / rpath, exist_ok=True)
 
 def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath: os.PathLike):
     """Handler when created or modified files have been closed"""
     global CAMERA, DEFAULT_FPS
-    print_file_event(action, rpath, is_directory)
+    if LOG_FILE_EVENTS:
+        print_file_event(action, rpath, is_directory)
     # Copy files before they're gone
     shutil.copy(fpath, COPIED_VIDEO_PATH / rpath)
 
-    # Handle file progress (output subdir).
-    # 1. Start with saved audio file: temp.wav and numpy audio_data.npy
-    # 2. Creates a directory png, and avi
-    # 3. As video generation runs, png files and .avi video files are saved
-    # 4. Final files are saved: mylist.txt, result.avi (video-only)
-    # 5. Saves mp4 video + audio version output-r.mp4 in parent directory
-    # 6. Deleted the output directory
+    if not TASK_ID:
+        return
 
-    # 1. Start with saved audio file: temp.wav and numpy audio_data.npy
-    if rpath == "output/temp.wav":
+    # 03. Copy audio file as <task_id>/temp.wav
+    if rpath == f"{TASK_ID}/temp.wav":
         # The audio file has been writen. We are ready to start receiving video files
+        print(f"Step 03: fpath: {fpath}")
         audio_length = get_audio_length(fpath)
         expected_frames = int(DEFAULT_FPS * audio_length) - 1
         expected_videos = math.ceil(expected_frames / 2)
@@ -106,20 +127,20 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
             print(f"Audio: {audio_length}s, Expected: Frames: {expected_frames}, Videos: {expected_videos}")
         # Clear previous run
         CAMERA.clear_videos()
-        CAMERA.set_status(CameraStatus.VIDEO_LOADED, "handle_closed_files")
+        CAMERA.set_status(CameraStatus.BUFFERING, "handle_closed_files")
         CAMERA.audio_start = time.time()
         CAMERA.video_start = -1
         return
 
-    # 3. As video generation runs, png files and .avi video files are saved
-    synthesis_vid_dir = "output/avi/"
+    # 06. Run video generation, <number++>.avi video files are saved
+    synthesis_vid_dir = f"{TASK_ID}/avi/"
     if rpath.startswith(synthesis_vid_dir):
         # Add to camera video queue
         if CAMERA.video_start <= 0:
             CAMERA.set_status(CameraStatus.BUFFERING, "synthesis_vid_dir")
             CAMERA.video_start = time.time()
             print(f"Audio to Video latency: {CAMERA.video_start - CAMERA.audio_start}s")
-        CAMERA.add_video(COPIED_VIDEO_PATH / rpath, time.time())
+        CAMERA.add_video(COPIED_VIDEO_PATH / TASK_ID / rpath, time.time())
         return
 
 def gen(camera:VideoCamera, frame_rate = DEFAULT_FPS):
@@ -332,7 +353,11 @@ def start_streaming():
 @app.route("/wav")
 def wav():
     """Get audio file and synchronize it to the images being displayed"""
-    return Response(generate_wav(COPIED_VIDEO_PATH / "output/temp.wav"), mimetype="audio/x-wav")
+    audio_task_id = request.args.get('task_id')
+    audio_path = COPIED_VIDEO_PATH / audio_task_id
+    audio_file = audio_path / "temp.wav"
+    print(f"audio_file: {audio_file}")
+    return Response(generate_wav(audio_file), mimetype="audio/x-wav")
 
 @app.route("/wav_load")
 def wav_load():
@@ -342,6 +367,14 @@ def wav_load():
     if LOG_FLASK:
         print (f"wav_file {wav_file}")
     return Response(generate_wav(last_task_dir / "temp.wav"), mimetype="audio/x-wav")
+
+@app.route("/is_live")
+def is_live():
+    """While waiting on live, retrieve camera status"""
+    return jsonify({
+        'camera': json.dumps(CAMERA.status, default=str),
+        'task_id': TASK_ID
+        })
 
 # Main function
 def main():

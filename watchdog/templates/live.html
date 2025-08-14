@@ -5,8 +5,8 @@
   </head>
   <body>
     <h1>Video Streaming Demonstration</h1>
-    <audio id="audioControls" controls autoplay onplay="start_play()">
-        <source src="{{ url_for('wav') }}" type="audio/wav">
+    <audio id="audioControls" autoplay onplay="start_play()">
+        <source src="" type="audio/wav">
         Your browser does not support the audio element.
     </audio>
     <p id="demo"></p>
@@ -14,15 +14,65 @@
 
     <p><a href="{{ url_for('index') }}">Return</a></p>
 
+
+
     <script>
-    function start_play() {
-      document.getElementById('audioControls').controls = false;
-      $.post("/start_streaming",
-      {
-        action: "play"
-      });
-      document.getElementById("demo").innerHTML = "The video has started to play";
-    }
+      var poll_time = 2000
+
+      function makeContinuousAjaxCall() {
+        return new Promise((resolve, reject) => {
+          // Make your AJAX request here (e.g., using fetch or XMLHttpRequest)
+          fetch("{{ url_for('is_live') }}")
+            .then(response => response.json()) // Assuming JSON response
+            .then(data => {
+              // The extra double quotes come from jsonifying an enum value
+              if (data.camera === '"CameraStatus.BUFFERING"') { // Define your success condition
+                resolve(data); // Resolve the promise with the final data
+                console.log(data.camera)
+                load_audio(data.task_id)
+              } else {
+                // If condition not met, call the function again after a delay
+                setTimeout(() => {
+                  makeContinuousAjaxCall().then(resolve).catch(reject);
+                }, poll_time); // Poll every 1 second (adjust as needed)
+              }
+            })
+            .catch(error => {
+              console.error('AJAX error:', error);
+              reject(error); // Reject the promise on error
+            });
+        });
+      }
+
+      // Initiate the continuous AJAX calls
+      makeContinuousAjaxCall()
+        .then(finalData => {
+          console.log('Continuous AJAX calls completed. Final data:', finalData);
+          // Process the final data here
+        })
+        .catch(error => {
+          console.error('Error during continuous AJAX calls:', error);
+        });
+
+      function load_audio(task_id) {
+        audioC = document.getElementById('audioControls')
+        audioC.controls = true;
+        audioC.src = "{{ url_for('wav') }}"+"?task_id="+task_id;
+        document.getElementById("demo").innerHTML = "The audio has loaded.";
+      }
+
+      function start_play() {
+        audioC = document.getElementById('audioControls')
+        audioC.controls = false;
+        /*
+        $.post("/start_streaming",
+        {
+          action: "play",
+          task_id: task_id
+        });
+        */
+        document.getElementById("demo").innerHTML = "The video has started to play";
+      }
     </script>
   </body>
 </html>
