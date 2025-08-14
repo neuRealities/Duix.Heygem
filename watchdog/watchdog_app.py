@@ -144,16 +144,58 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
         return
 
 def genStream(camera:VideoCamera, frame_rate = DEFAULT_FPS):
-    success, frame, framenum, video,  = camera.get_frame()
-    yield (b'--frame\r\n'
-        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+    """Streaming version of generated camera."""
+    # Lots of shared code with offline
+    # TO DO: Modularize shared calls
+    # Set Initial state.
+    avg_frame_duration = 0
+    sleep_time = 1.0 / frame_rate
+    delta_time = 0
+    play_time = 0
+
+    while camera.status != CameraStatus.STREAM_FINISHED:
+        if camera.status == CameraStatus.STREAM_PLAY:
+            # Time retrieval time
+            frame_start = time.time()
+            success, frame, framenum, video,  = camera.get_frame()
+            retrieval_duration = time.time() - frame_start
+            if success:
+
+                frameprint_start = time.time()
+                videofilename_without_ext, _ = os.path.splitext(os.path.basename(video['path']))
+                avg_frame_duration = ((avg_frame_duration * framenum) + sleep_time) / (framenum + 1)
+                # Time print
+                if LOG_TIMING:
+                    print(f"Frame: {framenum:03d}. Video Queue: {video['index']:03d}, " \
+                        f"Video File: {videofilename_without_ext}, " \
+                        f"Vid.Frame: {video['current_frame']}, " \
+                        f"delta_time:{delta_time:.7f} Avg Frame Duration: {avg_frame_duration:.8f}")
+                frameprint_duration = time.time() - frameprint_start
+
+                # Time actual sleep
+                sleep_start = time.time()
+                elapsed_time = retrieval_duration + frameprint_duration + delta_time
+                requested_sleep = sleep_time - elapsed_time
+                time.sleep(max(requested_sleep, 0))
+                sleep_duration = time.time() - sleep_start
+                delta_sleep = sleep_duration - requested_sleep
+
+                # Meet timing expectations
+                expected_play_time = framenum / frame_rate
+                if LOG_TIMING:
+                    print(f"Times: expected:{expected_play_time:.7f}, play: {play_time:.7f}, " \
+                        f"sleep: {sleep_duration:.7f}, delta_sleep: {delta_sleep:.7f}")
+                frame_duration = time.time() - frame_start # Includes any debug print statements
+                play_time += frame_duration
+                delta_time = play_time - expected_play_time # Carries on to next frame sleep request
+
+            yield (b'--frame\r\n'
+                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
 
 def genLoad(camera:VideoCamera, frame_rate = DEFAULT_FPS):
     """Get frames from camera class by loading existing videos"""
     # Set Initial state.
-    # Notice that IS_PLAYING=True might not work due to browser
-    # restrictions on unwanted audio play without user intervention
     avg_frame_duration = 0
     sleep_time = 1.0 / frame_rate
     delta_time = 0
@@ -198,7 +240,7 @@ def genLoad(camera:VideoCamera, frame_rate = DEFAULT_FPS):
             yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
-def load_camera(video_list:list, frame_rate=DEFAULT_FPS):
+def load_camera(video_list:list, frame_rate=DEFAULT_FPS, offline=True):
     """Initialize camera object from cv2.VideoCapture with video queue"""
     global CAMERA, FRAMEIMAGE_PATH
     CAMERA.clear_videos()
@@ -208,17 +250,19 @@ def load_camera(video_list:list, frame_rate=DEFAULT_FPS):
     CAMERA.load_videos(video_list, time.time())
     if video_list:
         update_camera_status(CameraStatus.VIDEO_LOADED, "load_camera: videos loaded")
-    return Response(genLoad(CAMERA, frame_rate),
-        mimetype='multipart/x-mixed-replace; boundary=frame')
+    if offline:
+        return Response(genLoad(CAMERA, frame_rate),
+            mimetype='multipart/x-mixed-replace; boundary=frame')
+    else: 
+        return Response(genStream(CAMERA, frame_rate),
+            mimetype='multipart/x-mixed-replace; boundary=frame')
 
 def generate_wav(filepath: os.PathLike):
     """Generate audio stream from .wav"""
     with open(filepath, "rb") as fwav:
         data = fwav.read(1024)
-        if data:
-            update_camera_status(CameraStatus.AUDIO_LOADED, "generate_wav")
         while data:
-            if CAMERA.status == CameraStatus.OFFLINE_PLAY:
+            if CAMERA.status == CameraStatus.OFFLINE_PLAY or CAMERA.status == CameraStatus.STREAM_PLAY:
                 yield data
                 data = fwav.read(1024)
 
@@ -302,6 +346,7 @@ def wav_load():
     wav_file = last_task_dir / "temp.wav"
     if LOG_FLASK:
         print (f"Laod wav_file: {wav_file}")
+    update_camera_status(CameraStatus.AUDIO_LOADED, "wav_load")
     return Response(generate_wav(last_task_dir / "temp.wav"), mimetype="audio/x-wav")
 
 @app.route('/video_load')
@@ -375,7 +420,7 @@ def video_feed():
 @app.route("/start_streaming", methods=['POST'])
 def start_streaming():
     """Called from the `/` HTML page"""
-    CAMERA.set_status(CameraStatus.AUDIO_LOADED, "start_streaming")
+    CAMERA.set_status(CameraStatus.STREAM_PLAY, "start_streaming")
     if LOG_FLASK:
         print(CAMERA)
     return jsonify({'camera': 'Playing', 'mode': 'streaming'})
