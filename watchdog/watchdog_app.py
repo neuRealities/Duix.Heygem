@@ -4,13 +4,14 @@ import time
 import math
 import wave
 import contextlib
+import json
 
 # File utilities
 import shutil
 from pathlib import Path
 
 # Flask display
-from flask import Flask, render_template, Response, jsonify
+from flask import Flask, render_template, request, Response, jsonify
 from camera import VideoCamera, CameraStatus
 
 # Watchdog
@@ -21,13 +22,14 @@ LOG_FILE_EVENTS = False
 LOG_TIMING      = False
 LOG_CAMERA      = True
 LOG_FLASK       = True
-DEFAULT_FPS       = 28.18
+DEFAULT_FPS     = 28.18
 
 # Define paths
 VOICE_DATA_PATH   = Path(os.path.expanduser(r"~/heygem_data/voice/data"))
 VIDEO_TEMP_PATH   = Path(os.path.expanduser(r"~/heygem_data/face2face/temp"))
 COPIED_VIDEO_PATH = Path(os.path.expanduser(r"~/heygem_data/face2face/copy"))
 FRAMEIMAGE_PATH   = Path(os.path.expanduser(r"~/heygem_data/face2face/frameimages"))
+TASK_ID = None
 
 CAMERA     = VideoCamera()
 CAMERA.log_progress = LOG_CAMERA
@@ -65,39 +67,57 @@ def print_file_event(action:str, rpath:str, is_directory:bool):
     if LOG_FILE_EVENTS:
         print(f"{action} {"Directory" if is_directory else "File" } : {rpath}")
 
+# Expect the following events to happen as the rendering progresses
+
+# Audio file creation:
+# 01. Create a <random_id_audio_gen>.wav file in the rpath root
+# 02. Create a <task_id> folder
+# 03. Copy audio file as <task_id>/temp.wav
+# 04. Copy numpy audio data as <task_id>/audio_data.npy
+
+# Image and video creation
+# Example below is from Text Input, not Adio Upload synthesis
+# 05. Create directory <task_id>/avi
+# 06. Run video generation, <number++>.avi video files are saved
+# 07. Save Final files: mylist.txt, result.avi (video-only)
+
+# Merge and cleanup
+# 08. Merge audio+vid with ffmpeg: <task_id>-r.mp4
+# 09. Delete <task_id> directory
+
+
+# Start process with
+# 02. Create a <task_id> folder, in handle_created_directories()
 
 def handle_created_directories(rpath: os.PathLike):
     """Handler when directories are created"""
-    global CAMERA
-    if rpath == 'output':
-        # Clean previous files
+    global TASK_ID
+    if not str(rpath).endswith("/avi"):
+        # 02. Create a <task_id> folder, so get TASK_ID
+        TASK_ID = str(rpath)
         if LOG_FILE_EVENTS:
-            print ("Cleaning previous copied files")
+            print (f"Task <{TASK_ID}> is cleaning previous copied files")
         if os.path.exists(COPIED_VIDEO_PATH):
             shutil.rmtree(COPIED_VIDEO_PATH)
         # Clean previous run
         CAMERA.clear_videos()
-    os.makedirs(COPIED_VIDEO_PATH / rpath, exist_ok=True)
-    print (f"Creating copied directory: {rpath}")
 
+    # Copy directory
+    os.makedirs(COPIED_VIDEO_PATH / rpath, exist_ok=True)
 
 def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath: os.PathLike):
     """Handler when created or modified files have been closed"""
     global CAMERA, DEFAULT_FPS
-    print_file_event(action, rpath, is_directory)
+    if LOG_FILE_EVENTS:
+        print_file_event(action, rpath, is_directory)
     # Copy files before they're gone
     shutil.copy(fpath, COPIED_VIDEO_PATH / rpath)
 
-    # Handle file progress (output subdir).
-    # 1. Start with saved audio file: temp.wav and numpy audio_data.npy
-    # 2. Creates a directory png, and avi
-    # 3. As video generation runs, png files and .avi video files are saved
-    # 4. Final files are saved: mylist.txt, result.avi (video-only)
-    # 5. Saves mp4 video + audio version output-r.mp4 in parent directory
-    # 6. Deleted the output directory
+    if not TASK_ID:
+        return
 
-    # 1. Start with saved audio file: temp.wav and numpy audio_data.npy
-    if rpath == "output/temp.wav":
+    # 03. Copy audio file as <task_id>/temp.wav
+    if rpath == f"{TASK_ID}/temp.wav":
         # The audio file has been writen. We are ready to start receiving video files
         audio_length = get_audio_length(fpath)
         expected_frames = int(DEFAULT_FPS * audio_length) - 1
@@ -106,34 +126,36 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
             print(f"Audio: {audio_length}s, Expected: Frames: {expected_frames}, Videos: {expected_videos}")
         # Clear previous run
         CAMERA.clear_videos()
-        CAMERA.set_status(CameraStatus.VIDEO_LOADED, "handle_closed_files")
+        CAMERA.set_status(CameraStatus.AUDIO_GENERATED, "temp.wav created")
         CAMERA.audio_start = time.time()
         CAMERA.video_start = -1
         return
 
-    # 3. As video generation runs, png files and .avi video files are saved
-    synthesis_vid_dir = "output/avi/"
+    # 06. Run video generation, <number++>.avi video files are saved
+    synthesis_vid_dir = f"{TASK_ID}/avi/"
     if rpath.startswith(synthesis_vid_dir):
         # Add to camera video queue
         if CAMERA.video_start <= 0:
-            CAMERA.set_status(CameraStatus.BUFFERING, "synthesis_vid_dir")
+            CAMERA.set_status(CameraStatus.VIDEO_BUFFERING, "avi dir created")
             CAMERA.video_start = time.time()
             print(f"Audio to Video latency: {CAMERA.video_start - CAMERA.audio_start}s")
         CAMERA.add_video(COPIED_VIDEO_PATH / rpath, time.time())
         return
+    
+    # 07. Save Final files: mylist.txt, result.avi (video-only)
+    if rpath == f"{TASK_ID}/mylist.txt":
+        CAMERA.set_status(CameraStatus.STREAM_VIDEO_DONE, "mylist.txt created")
 
-def gen(camera:VideoCamera, frame_rate = DEFAULT_FPS):
-    """Get frames from camera class"""
+def generate_camera(camera:VideoCamera, frame_rate = DEFAULT_FPS):
+    """Streaming version of generated camera."""
     # Set Initial state.
-    # Notice that IS_PLAYING=True might not work due to browser
-    # restrictions on unwanted audio play without user intervention
     avg_frame_duration = 0
     sleep_time = 1.0 / frame_rate
     delta_time = 0
     play_time = 0
 
-    while camera.status != CameraStatus.FINISHED:
-        if camera.status == CameraStatus.PLAYING:
+    while camera.status != CameraStatus.OFFLINE_FINISHED or camera.status != CameraStatus.STREAM_FINISHED or camera.status != CameraStatus.STREAM_VIDEO_DONE:
+        if camera.status == CameraStatus.OFFLINE_PLAY or camera.status == CameraStatus.STREAM_PLAY:
             # Time retrieval time
             frame_start = time.time()
             success, frame, framenum, video,  = camera.get_frame()
@@ -175,24 +197,21 @@ def load_camera(video_list:list, frame_rate=DEFAULT_FPS):
     """Initialize camera object from cv2.VideoCapture with video queue"""
     global CAMERA, FRAMEIMAGE_PATH
     CAMERA.clear_videos()
-    update_camera_status(CameraStatus.IDLE, "load_camera: videos cleared")
     if os.path.exists(FRAMEIMAGE_PATH):
         shutil.rmtree(FRAMEIMAGE_PATH)
     CAMERA.set_frame_output_dir(FRAMEIMAGE_PATH.as_posix())
     CAMERA.load_videos(video_list, time.time())
-    if video_list:
+    if video_list: # For offline mode
         update_camera_status(CameraStatus.VIDEO_LOADED, "load_camera: videos loaded")
-    return Response(gen(CAMERA, frame_rate),
+    return Response(generate_camera(CAMERA, frame_rate),
         mimetype='multipart/x-mixed-replace; boundary=frame')
 
 def generate_wav(filepath: os.PathLike):
     """Generate audio stream from .wav"""
     with open(filepath, "rb") as fwav:
         data = fwav.read(1024)
-        if data:
-            update_camera_status(CameraStatus.AUDIO_LOADED, "generate_wav")
         while data:
-            if CAMERA.status == CameraStatus.PLAYING:
+            if CAMERA.status == CameraStatus.OFFLINE_PLAY or CAMERA.status == CameraStatus.STREAM_PLAY:
                 yield data
                 data = fwav.read(1024)
 
@@ -229,7 +248,9 @@ def update_camera_status(new:CameraStatus, label:str=""):
     if CAMERA.status == new:
         return
     if CAMERA.status == CameraStatus.OFF and new != CameraStatus.IDLE:
-        print(f"Update Not possible: {CAMERA.status} -> {new}")
+        print(f"Camera was OFF, switching to IDLE: {CAMERA.status} -> {new}")
+        CAMERA.set_status(CameraStatus.IDLE, label)
+
     if new == CameraStatus.IDLE:
         # Don't return to idle if waiting (video/audio race condition on reload)
         if CAMERA.status == CameraStatus.AUDIO_LOADED or CAMERA.status == CameraStatus.VIDEO_LOADED:
@@ -239,11 +260,11 @@ def update_camera_status(new:CameraStatus, label:str=""):
         return
     if new == CameraStatus.AUDIO_LOADED:
         if CAMERA.status == CameraStatus.VIDEO_LOADED:
-            CAMERA.set_status(CameraStatus.PLAYING, label)
+            CAMERA.set_status(CameraStatus.OFFLINE_PLAY, label)
             return
     if new == CameraStatus.VIDEO_LOADED:
         if CAMERA.status == CameraStatus.AUDIO_LOADED:
-            CAMERA.set_status(CameraStatus.PLAYING, label)
+            CAMERA.set_status(CameraStatus.OFFLINE_PLAY, label)
             return
     CAMERA.set_status(new, label)
 
@@ -256,13 +277,26 @@ app = Flask(__name__)
 @app.route('/')
 def index():
     """Render main flask page"""
-    return render_template('index.html', audioAutoPlay = '')
+    return render_template('index.html')
+
+###########
+# OFFLINE #
+###########
 
 @app.route('/load')
 def load():
     """Render video load flask page"""
     return render_template('load.html', audioAutoPlay = 'autoplay')
 
+@app.route("/wav_load")
+def wav_load():
+    """Get audio file and synchronize it to the images being displayed"""
+    last_task_dir, last_task_id = get_load_directory()
+    wav_file = last_task_dir / "temp.wav"
+    if LOG_FLASK:
+        print (f"Load wav_file: {wav_file}")
+    update_camera_status(CameraStatus.AUDIO_LOADED, "wav_load")
+    return Response(generate_wav(last_task_dir / "temp.wav"), mimetype="audio/x-wav")
 
 @app.route('/video_load')
 def video_load():
@@ -302,42 +336,56 @@ def video_load():
 
     return load_camera(video_files, video_framerate)
 
-@app.route('/video_feed')
-def video_feed():
-    """Get camera with empty video queue"""
-    return load_camera([])
-
 @app.route("/stop_loaded_videos", methods=['POST'])
 def stop_loaded_videos():
     """Called from the `/load` page"""
-    CAMERA.set_status(CameraStatus.FINISHED, "stop_loaded_videos")
+    CAMERA.set_status(CameraStatus.OFFLINE_FINISHED, "stop_loaded_videos")
     CAMERA.reset()
     return jsonify({'camera': 'Idle', 'mode': 'offline'})
 
-@app.route("/start_streaming", methods=['POST'])
-def start_streaming():
-    """Called from the `/` HTML page"""
-    global CAMERA
-    CAMERA.set_status(CameraStatus.AUDIO_LOADED, "start_streaming")
-    if LOG_FLASK:
-        print(CAMERA)
-    return jsonify({'camera': 'Playing', 'mode': 'streaming'})
+##########
+# STREAM #
+##########
+
+@app.route('/live')
+def live():
+    """Render video load flask page"""
+    return render_template('live.html', audioAutoPlay = 'autoplay')
 
 @app.route("/wav")
 def wav():
     """Get audio file and synchronize it to the images being displayed"""
-    return Response(generate_wav(COPIED_VIDEO_PATH / "output/temp.wav"), mimetype="audio/x-wav")
+    audio_task_id = request.args.get('task_id')
+    audio_path = COPIED_VIDEO_PATH / audio_task_id
+    audio_file = audio_path / "temp.wav"
+    print(f"audio_file: {audio_file}")
+    return Response(generate_wav(audio_file), mimetype="audio/x-wav")
 
-@app.route("/wav_load")
-def wav_load():
-    """Get audio file and synchronize it to the images being displayed"""
-    last_task_dir, last_task_id = get_load_directory()
-    wav_file = last_task_dir / "temp.wav"
+@app.route('/video_feed')
+def video_feed():
+    """Get camera with empty video queue while waiting"""
+    return load_camera([])
+
+@app.route("/start_streaming", methods=['POST'])
+def start_streaming():
+    """Called from the `/` HTML page"""
+    CAMERA.set_status(CameraStatus.STREAM_PLAY, "start_streaming")
     if LOG_FLASK:
-        print (f"wav_file {wav_file}")
-    return Response(generate_wav(last_task_dir / "temp.wav"), mimetype="audio/x-wav")
+        print(CAMERA)
+    return jsonify({'camera': 'Playing', 'mode': 'streaming'})
 
-# Main function
+@app.route("/is_live")
+def is_live():
+    """While waiting on live, retrieve camera status"""
+    return jsonify({
+        'camera': json.dumps(CAMERA.status, default=str),
+        'task_id': TASK_ID
+    })
+
+#################
+# Main function #
+#################
+
 def main():
     """Main watchdog function to observe files created by heygem-gen-video docker service"""
     # Watchdog subscribe
