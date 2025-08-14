@@ -5,18 +5,21 @@
   </head>
   <body>
     <h1>Synthesized Video Loading Demonstration</h1>
-    <audio id="audioControls" controls {{ audioAutoPlay }} hidden onended="stop_play()">
+    <audio id="audioControls" controls {{ audioAutoPlay }} hidden onended="stop_play('stop')">
         <source src="{{ url_for('wav_load') }}" type="audio/wav">
         Your browser does not support the audio element.
     </audio>
     <p id="demo"></p>
+    
     <img id="bg" src="{{ url_for('video_load') }}">
 
+    <p><a href="{{ url_for('index') }}" onclick="stop_play('reset')">Return</a></p>
+
     <script>
-    function stop_play() {
+    function stop_play(action_str='stop') {
       document.getElementById("demo").innerHTML = "The video has ended";
       $.post("/stop_loaded_videos",
-        { action: "stop" });
+        { action: action_str });
     }
     </script>
   </body>

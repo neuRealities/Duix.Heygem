@@ -175,7 +175,6 @@ def load_camera(video_list:list, frame_rate=DEFAULT_FPS):
     """Initialize camera object from cv2.VideoCapture with video queue"""
     global CAMERA, FRAMEIMAGE_PATH
     CAMERA.clear_videos()
-    update_camera_status(CameraStatus.IDLE, "load_camera: videos cleared")
     if os.path.exists(FRAMEIMAGE_PATH):
         shutil.rmtree(FRAMEIMAGE_PATH)
     CAMERA.set_frame_output_dir(FRAMEIMAGE_PATH.as_posix())
@@ -229,7 +228,9 @@ def update_camera_status(new:CameraStatus, label:str=""):
     if CAMERA.status == new:
         return
     if CAMERA.status == CameraStatus.OFF and new != CameraStatus.IDLE:
-        print(f"Update Not possible: {CAMERA.status} -> {new}")
+        print(f"Camera was OFF, switching to IDLE: {CAMERA.status} -> {new}")
+        CAMERA.set_status(CameraStatus.IDLE, label)
+
     if new == CameraStatus.IDLE:
         # Don't return to idle if waiting (video/audio race condition on reload)
         if CAMERA.status == CameraStatus.AUDIO_LOADED or CAMERA.status == CameraStatus.VIDEO_LOADED:
@@ -283,6 +284,7 @@ def video_load():
             for (dirpath, dirnames, filenames) in os.walk(avi_dir)
         for f in filenames]
     video_files.sort()
+    #update_camera_status(CameraStatus.IDLE, "video_load")
     # Get existing audio file
     wav_file = last_task_dir / "temp.wav"
 

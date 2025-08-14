@@ -12,6 +12,8 @@
     <p id="demo"></p>
     <img id="bg" src="{{ url_for('video_feed') }}">
 
+    <p><a href="{{ url_for('index') }}">Return</a></p>
+
     <script>
     function start_play() {
       document.getElementById('audioControls').controls = false;

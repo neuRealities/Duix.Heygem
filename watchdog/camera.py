@@ -62,7 +62,7 @@ class VideoCamera(object):
     def reset(self):
         """Resets camera for multiple page loads"""
         self.status = CameraStatus.OFF
-        self.video['capture'].release()
+        self.release_capture()
         self.clear_videos()
         self.framenum = 0
         self.video_index = 0
@@ -71,6 +71,11 @@ class VideoCamera(object):
         self.last_video_load_time = -1
         self.video_rate  = 0
 
+    def release_capture(self):
+        """Release video capture to free resources and prevent thread lock"""
+        if self.video:
+            if self.video['capture']:
+                self.video['capture'].release()
 
     def set_status(self, status:CameraStatus, label:str=""):
         """ Set camera status""" 
@@ -86,7 +91,7 @@ class VideoCamera(object):
 
     def get_frame(self):
         """Use opencv get get frame image from a loaded video, otherwise load video in queue"""
-        if self.status == CameraStatus.IDLE:
+        if self.status == CameraStatus.IDLE or self.status == CameraStatus.OFF:
             return False, self.latest_frame_jpeg.tobytes(), self.framenum, self.video
         if not self.video or not self.video['capture']: # load next video in queue
             self.next_video()
