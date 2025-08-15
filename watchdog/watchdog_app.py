@@ -190,8 +190,8 @@ def generate_camera(camera:VideoCamera, frame_rate = DEFAULT_FPS):
                 play_time += frame_duration
                 delta_time = play_time - expected_play_time # Carries on to next frame sleep request
 
-            yield (b'--frame\r\n'
-                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+                yield (b'--frame\r\n'
+                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
 def load_camera(video_list:list, frame_rate=DEFAULT_FPS):
     """Initialize camera object from cv2.VideoCapture with video queue"""
