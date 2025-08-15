@@ -18,10 +18,11 @@ from camera import VideoCamera, CameraStatus
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-LOG_FILE_EVENTS = False
-LOG_TIMING      = False
+LOG_FILE_EVENTS = True
+LOG_TIMING      = True
 LOG_CAMERA      = True
 LOG_FLASK       = True
+LOG_MERGE_CREATE_CLOSE = True
 DEFAULT_FPS     = 28.18
 
 # Define paths
@@ -77,13 +78,14 @@ def print_file_event(action:str, rpath:str, is_directory:bool):
 
 # Image and video creation
 # Example below is from Text Input, not Adio Upload synthesis
-# 05. Create directory <task_id>/avi
-# 06. Run video generation, <number++>.avi video files are saved
-# 07. Save Final files: mylist.txt, result.avi (video-only)
+# 05. Create directory <task_id>/png only for long synthesis
+# 06. Create directory <task_id>/avi
+# 07. Run video generation, <number++>.avi video files are saved
+# 08. Save Final files: mylist.txt, result.avi (video-only)
 
 # Merge and cleanup
-# 08. Merge audio+vid with ffmpeg: <task_id>-r.mp4
-# 09. Delete <task_id> directory
+# 09. Merge audio+vid with ffmpeg: <task_id>-r.mp4
+# 10. Delete <task_id> directory
 
 
 # Start process with
@@ -92,7 +94,7 @@ def print_file_event(action:str, rpath:str, is_directory:bool):
 def handle_created_directories(rpath: os.PathLike):
     """Handler when directories are created"""
     global TASK_ID
-    if not str(rpath).endswith("/avi"):
+    if not (str(rpath).endswith("/avi") or str(rpath).endswith("/png")):
         # 02. Create a <task_id> folder, so get TASK_ID
         TASK_ID = str(rpath)
         if LOG_FILE_EVENTS:
@@ -131,7 +133,7 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
         CAMERA.video_start = -1
         return
 
-    # 06. Run video generation, <number++>.avi video files are saved
+    # 07. Run video generation, <number++>.avi video files are saved
     synthesis_vid_dir = f"{TASK_ID}/avi/"
     if rpath.startswith(synthesis_vid_dir):
         # Add to camera video queue
@@ -141,8 +143,8 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
             print(f"Audio to Video latency: {CAMERA.video_start - CAMERA.audio_start}s")
         CAMERA.add_video(COPIED_VIDEO_PATH / rpath, time.time())
         return
-    
-    # 07. Save Final files: mylist.txt, result.avi (video-only)
+
+    # 08. Save Final files: mylist.txt, result.avi (video-only)
     if rpath == f"{TASK_ID}/mylist.txt":
         CAMERA.set_status(CameraStatus.STREAM_VIDEO_DONE, "mylist.txt created")
 
@@ -154,8 +156,8 @@ def generate_camera(camera:VideoCamera, frame_rate = DEFAULT_FPS):
     delta_time = 0
     play_time = 0
 
-    while camera.status != CameraStatus.OFFLINE_FINISHED or camera.status != CameraStatus.STREAM_FINISHED or camera.status != CameraStatus.STREAM_VIDEO_DONE:
-        if camera.status == CameraStatus.OFFLINE_PLAY or camera.status == CameraStatus.STREAM_PLAY:
+    while not is_finished(camera.status):
+        if is_playing(camera.status):
             # Time retrieval time
             frame_start = time.time()
             success, frame, framenum, video,  = camera.get_frame()
@@ -267,6 +269,14 @@ def update_camera_status(new:CameraStatus, label:str=""):
             CAMERA.set_status(CameraStatus.OFFLINE_PLAY, label)
             return
     CAMERA.set_status(new, label)
+
+def is_finished(current:CameraStatus):
+    """Return if camera is finished in either offline or streaming mode"""
+    return current in [CameraStatus.OFFLINE_FINISHED, CameraStatus.STREAM_FINISHED, CameraStatus.STREAM_VIDEO_DONE]
+
+def is_playing(current:CameraStatus):
+    """Return if camera is playing in either offline or streaming mode"""
+    return current in [current in [CameraStatus.OFFLINE_PLAY, CameraStatus.STREAM_PLAY]]
 
 
 ###################
