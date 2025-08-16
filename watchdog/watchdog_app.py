@@ -149,7 +149,7 @@ def handle_closed_files(action:str, rpath: os.PathLike, is_directory:bool, fpath
         CAMERA.set_status(CameraStatus.STREAM_VIDEO_DONE, "mylist.txt created")
 
 def generate_camera(camera:VideoCamera, frame_rate = DEFAULT_FPS):
-    """Streaming version of generated camera."""
+    """Generated camera fron openCV serviving single image frames"""
     # Set Initial state.
     avg_frame_duration = 0
     sleep_time = 1.0 / frame_rate
@@ -163,7 +163,6 @@ def generate_camera(camera:VideoCamera, frame_rate = DEFAULT_FPS):
             success, frame, framenum, video,  = camera.get_frame()
             retrieval_duration = time.time() - frame_start
             if success:
-
                 frameprint_start = time.time()
                 videofilename_without_ext, _ = os.path.splitext(os.path.basename(video['path']))
                 avg_frame_duration = ((avg_frame_duration * framenum) + sleep_time) / (framenum + 1)
@@ -213,7 +212,7 @@ def generate_wav(filepath: os.PathLike):
     with open(filepath, "rb") as fwav:
         data = fwav.read(1024)
         while data:
-            if CAMERA.status == CameraStatus.OFFLINE_PLAY or CAMERA.status == CameraStatus.STREAM_PLAY:
+            if is_playing(CAMERA.status):
                 yield data
                 data = fwav.read(1024)
 
@@ -276,7 +275,7 @@ def is_finished(current:CameraStatus):
 
 def is_playing(current:CameraStatus):
     """Return if camera is playing in either offline or streaming mode"""
-    return current in [current in [CameraStatus.OFFLINE_PLAY, CameraStatus.STREAM_PLAY]]
+    return current in [CameraStatus.OFFLINE_PLAY, CameraStatus.STREAM_PLAY]
 
 
 ###################
